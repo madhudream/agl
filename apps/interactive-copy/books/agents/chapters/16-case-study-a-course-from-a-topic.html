@@ -1,0 +1,230 @@
+<!--meta {"title": "Case study: a course from a topic", "part": "Part V · Real world", "minutes": 12, "summary": "Priya's course builder end to end: the output contract, one writer loop per chapter with a validator, the site's real build check as the last node, a repair path, grounding in a source or a PDF, and a content judge. Every idea in the book, used at once, as a template."} -->
+
+<p class="lede">In this chapter, we will build the thing Priya wanted from the start: a graph that takes a
+topic, or a PDF, and writes a course for her site, well enough that she trusts it before a student sees
+it. We will design it backwards from the output contract, read every node, run it, and see what the
+evaluators catch. Then we will show how the same shape writes something else. By the end you will have
+seen every idea in the book used in one program, and you will know how to adapt it to your own output.</p>
+
+<aside class="note analogy">
+<h4>The analogy: a special edition</h4>
+<p>A special edition is the whole newsroom at once. The editor plans the sections. Reporters write them
+in parallel, each against the style guide, each checked by a sub-editor before it leaves their desk. A
+production editor assembles the pages. The printer's proof is the final check: either the edition prints
+or a page goes back. The course builder is a special edition with a graph for a desk.</p>
+</aside>
+
+<h2>Step 1: the output contract</h2>
+
+<p><strong>The site that serves the course is a static build: a book is a folder, and <code>build.py --check</code>
+decides whether it is a book.</strong> So the target is a folder with a <code>book.json</code>, a
+<code>chapters/NN-slug.html</code> per chapter in the site's component vocabulary, and an assets file; and
+the last node is the site's own checker. Its rules, plus the site's style guide, become a deterministic
+validator the writers must pass before anything touches disk:</p>
+
+<pre><code class="language-python">def validate_chapter(html, expect=None) -> bool | str:
+    problems = []
+    # first line is the meta comment with title, part, minutes, summary; pinned title and part must match exactly
+    # no em dash; no exclamation mark; no <h1>; no widget references; a fragment, not a page
+    # every tag balanced; lede, analogy, try, faq, carry, check all present
+    # 1,400 to 2,400 words; at least five folded answers
+    return True if not problems else "Fix these and resend the whole chapter: " + "; ".join(problems)</code></pre>
+
+<p>Every complaint names the fact and the target, because the writer will read it as feedback. All the
+complaints come back at once, so a draft is fixed in one retry rather than five.</p>
+
+<h2>Step 2: the stages, as a graph</h2>
+
+<pre class="diagram">topic/pdf ──► outline ──► write (fanout: one loop per chapter) ──► assemble ──► build_check ──► END
+                                                                      ▲              │ fail
+                                                                      └──── fix ◄────┘</pre>
+
+<pre><code class="language-python">g = Graph.from_text("""
+    START -> outline
+    outline -> write
+    write -> assemble
+    assemble -> build_check
+    build_check ?ok-> END
+    build_check ?fail-> fix
+    fix -> assemble
+""", nodes={"outline": outline, "write": fanout(write_one, over="plan_chapters", into="chapters", workers=6),
+            "assemble": assemble, "build_check": build_check, "fix": fix},
+     routers={"build_check": lambda s: "ok" if s["build_ok"] else "fail"}, name="course-builder")</code></pre>
+
+<p>Three patterns from the catalogue: a sequence, a map, a repair path. The back edge <code>fix -&gt;
+assemble</code> is a jump, not a dependency, so the first pass runs straight through.</p>
+
+<h2>Step 3: the nodes</h2>
+
+<h3>outline: a planner with a count check</h3>
+
+<pre><code class="language-python">def outline_ok(answer):
+    plan = parse_json(answer)
+    n = len(plan.get("chapters", []))
+    return True if n == chapters else f"the plan has {n} chapters; it must have exactly {chapters}"
+
+outliner = Loop(llm, name="outline", json_mode=True, evaluate=check(outline_ok), max_fails=2,
+                system="You design short interactive books for students. Reply with JSON only.")
+
+def outline(s):
+    source = f"\n\nSource material (use only this for facts):\n{s['source'][:30000]}" if s.get("source") else ""
+    plan = parse_json(outliner.run(f"Topic: {s['topic']}\nDesign a book of exactly {chapters} chapters ..." + source).answer)
+    for i, ch in enumerate(plan["chapters"], 1):            # the plan's labels are the law for every writer
+        ch["n"] = i
+        ch["part"] = ch["part"] if ch.get("part") in plan["parts"] else list(plan["parts"])[0]
+    return {"plan": plan, "plan_chapters": plan["chapters"]}</code></pre>
+
+<p>A planner left alone returns one chapter when asked for three, and three different part labels for
+three chapters. The count is a check with feedback; the labels are normalised in code. Prompts are not
+where these get fixed.</p>
+
+<h3>write: one loop per chapter, two evaluators</h3>
+
+<pre><code class="language-python">def write_one(ch, s):
+    pinned = {"title": ch["title"], "part": ch["part"]}
+    writer = Loop(llm, name="write", plugins=Plugins(Skills(only=["plain-writing", "course-chapter"])), max_fails=3,
+                  evaluate=all_of(check(lambda html: validate_chapter(html, pinned)),             # free, structural
+                                  judge(llm, CONTENT_RUBRIC, threshold=0.7, model=JUDGE_MODEL)),   # content, a different model
+                  system="You write one chapter of an interactive book as an HTML fragment. Output the HTML only.")
+    source = f"\n\nSource material (facts must come from here):\n{s['source'][:20000]}" if s.get("source") else ""
+    task = (f"Book: {s['plan']['title']}\nRunning analogy: {s['plan']['analogy']}\nChapter {ch['n']}: {ch['title']}\n"
+            f"meta.title must be exactly: {ch['title']}\nmeta.part must be exactly: {ch['part']}\n"
+            f"Summary: {ch['summary']}\nMust include: {'; '.join(ch['facts'])}\n"
+            f"Length: aim for 1,800 words and stop by 2,200 (hard limit 2,400; first drafts run long).{source}")
+    r = writer.run(task, state=s)
+    return {**ch, "html": r.answer, "ok": r.passed}</code></pre>
+
+<p>The writers get no tools: they write. They get two skills: the voice and the chapter contract. Their
+evaluator is <code>all_of</code>: the validator first, free; the content judge second, on the judge model,
+only for chapters that passed the validator. The source material, when there is one, goes into the task
+with "facts must come from here", which is grounding. The length line exists because first drafts run
+long and a retry costs a whole chapter.</p>
+
+<h3>assemble, build_check, fix</h3>
+
+<pre><code class="language-python">def assemble(s):          # plain Python: write the folder the site expects
+    ...; return {"book_dir": str(root)}
+
+def build_check(s):       # the real checker as a node: the strongest evaluator there is
+    r = subprocess.run([sys.executable, "build.py", "--check"], cwd=APP, capture_output=True, text=True, timeout=120)
+    errs = [line for line in r.stdout.splitlines() if line.strip().startswith("!") and f"{slug}/" in line]
+    return {"build_ok": r.returncode == 0 and not errs, "build_errors": errs}
+
+def fix(s):               # repair only the chapters the build named, with the complaints in the prompt
+    for ch in s["chapters"]:
+        mine = [e for e in s["build_errors"] if f"{ch['n']:02d}-{ch['slug']}" in e]
+        if mine: ch = {**ch, "html": fixer.run(f"Problems reported by the build:\n- " + "\n- ".join(mine) + f"\n\nChapter:\n{ch['html']}").answer}
+    return {"chapters": chapters}</code></pre>
+
+<h2>Step 4: run it</h2>
+
+<pre><code class="language-bash">uv run python examples/course_builder.py "Graph engineering for AI agents" --source docs/graph-engineering.md --chapters 3
+uv run python examples/course_builder.py --pdf notes.pdf --chapters 4
+(cd apps/interactive-copy && python3 -m http.server 8000 -d dist)     # then open /&lt;slug&gt;/</code></pre>
+
+<pre class="out">╔═ graph course-builder: 5 nodes
+║ ▶ outline
+║ ■ outline 36091ms
+║ ▶ write
+║   write: ✗ FAIL  Fix these and resend the whole chapter: 2747 words; the chapter must be 1,400 to 2,400 words
+║   write: ✗ FAIL  score=0.65 falls short of the length target, sets minutes to 8 instead of the required 10, and omits
+║                  the required router syntax from the source
+║ ■ write 171268ms
+║ ▶ assemble
+║ ■ assemble 3ms
+║ ▶ build_check
+║ ■ build_check 114ms
+║ ⤷ build_check --ok--> END
+╚═ done: outline → write → assemble → build_check</pre>
+
+<p>Read what the evaluators did. The validator bounced one chapter for length; the writer fixed it in
+one retry. The content judge bounced a different chapter for being short, carrying the wrong minutes, and
+leaving out an example the source required; the retry fixed that too. The build check passed on the first
+try, because nothing reached it that had not already passed the contract. Three chapters in about three
+minutes, the three writers in one wave, and the result is a book on the shelf of the test copy of the site:
+cover, sidebar with parts, chapters with lede, analogy, sections, exercises, questions and answers,
+because the contract demanded each one.</p>
+
+<h2>What the evaluators teach you about the graph</h2>
+
+<pre class="diagram">length bounces        the skill's range is tight for first drafts: add the target line (done), or widen the range
+content bounces       the judge reads the whole source every call and is most of the cost: give it the facts list instead
+no build failures     the validator and the checker agree; the repair path is insurance, not a working part
+drift without source  without --source the model chooses its own meaning for a term: ground every real build</pre>
+
+<p>The second line is the next experiment, and Chapter 15 is how to run it: change the judge's input,
+run the exam, compare score and cost, keep or discard, log.</p>
+
+<h2>The same shape, a different output</h2>
+
+<p><strong>Change the output contract and the graph writes something else.</strong></p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Output</th><th>Contract (last node)</th><th>Map over</th><th>Validator</th><th>Judge</th></tr></thead>
+<tbody>
+<tr><td>a course</td><td>the site's build check</td><td>chapters</td><td>sections, word range, style</td><td>agrees with the source</td></tr>
+<tr><td>a technical report</td><td>a PDF renders; every figure referenced</td><td>sections</td><td>headings present, citations resolve</td><td>claims match the data appendix</td></tr>
+<tr><td>a test suite</td><td>the tests run and pass</td><td>functions to cover</td><td>one test file per function, imports resolve</td><td>tests check behaviour, not implementation</td></tr>
+<tr><td>a product catalogue</td><td>the import script accepts the CSV</td><td>products</td><td>required columns, no empty prices</td><td>descriptions match the spec sheet</td></tr>
+</tbody></table></div>
+
+<p>In each row the shape is outline, map, assemble, real check, repair. What changes is the contract,
+the validator and the rubric. Write those three for your output and the graph is the same file.</p>
+
+<h2>Serving it</h2>
+
+<p><strong>To build on demand, expose the graph over HTTP.</strong> <code>agl serve --graphs examples/course_builder.py</code>
+accepts <code>POST /graph</code> with the topic and the source text and returns the final state, including
+<code>book_dir</code> and <code>build_ok</code>. A site hands the user's topic or uploaded PDF to it,
+reviews the result, and copies the folder in. <a href="/agents/18-shipping/">Chapter 18</a> covers the
+review step and the safety around it.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Run the course builder with two chapters on a topic you know, against the copy of the site. Read one
+chapter as a student would and note the first mistake. Run again with <code>--source</code> pointing at
+a document you trust and see whether it survives. Then pick one row of the table above and write its
+validator and rubric; do not write any nodes until you have.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why is the build check a node and not just a test afterwards?</summary><p>Because a
+failing build should route to a repair, and a router needs to be in the graph. The real check as the last
+node also makes the graph's success the site's definition of success.</p></details>
+<details><summary>Why one writer per chapter instead of one writer for the book?</summary><p>Parallelism
+and isolation: three chapters take the time of one, and a chapter that fails is retried alone. The cost is
+coherence between chapters, which the shared outline and analogy mitigate and a continuity editor node
+would finish.</p></details>
+<details><summary>Could the judge use the worker model to save money?</summary><p>It would be the worker
+grading itself. Cut the judge's input instead, which attacks the real cost, the tokens, and keeps the
+independent reader.</p></details>
+<details><summary>What about a long PDF?</summary><p><code>--pdf</code> extracts the text and puts it
+where <code>--source</code> would. The prompts truncate the source to a fixed size, so a long PDF wants a
+selection node first: pick the pages relevant to each chapter. That node is a loop with a reader tool.</p></details>
+<details><summary>Is a generated chapter ready to publish?</summary><p>It is structurally correct,
+grounded and judged for consistency with its source. It is not yet checked for whether it is interesting.
+A person reviews it before it is published; that review can itself be a judge node with the site's review
+protocol as its rubric.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Design from the output contract backwards; the program that consumes the output is the last node.</li>
+<li>One loop per item with a validator that returns every complaint at once; a content judge on a different model, only after the validator.</li>
+<li>The real check as a node, a repair node on fail with a back edge, grounding in the source.</li>
+<li>The evaluators' bounces tell you where the graph is tight and where the cost is.</li>
+<li>Change the contract, the validator and the rubric, and the same graph writes something else.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Why does every writer validate its chapter before it is written to disk?</p>
+<details><summary>Answer</summary><p>So a structural failure goes back to the model with a precise complaint while the writer still has the context, instead of being found by the build and repaired by a separate node.</p></details></div>
+<div class="q"><p><strong>2.</strong> What did grounding change, and what did the content judge add on top?</p>
+<details><summary>Answer</summary><p>Grounding made the chapters follow the source's meaning of the terms instead of the model's; the judge caught a chapter that was short, had the wrong minutes and omitted a required example, which no structural check could see.</p></details></div>
+<div class="q"><p><strong>3.</strong> To make this graph write a test suite instead of a course, what do you change?</p>
+<details><summary>Answer</summary><p>The contract (the tests run and pass), the validator (one test file per function, imports resolve) and the rubric (tests check behaviour). The shape stays: outline, map, assemble, real check, repair.</p></details></div>
+</section>

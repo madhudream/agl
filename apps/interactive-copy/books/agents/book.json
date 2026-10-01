@@ -1,0 +1,62 @@
+{
+  "slug": "agents",
+  "order": 3,
+  "hue": 205,
+  "hidden": false,
+  "title": "AI Agent Loops and Graphs: Novice to Ninja",
+  "short": "Agents",
+  "eyebrow": "An interactive textbook",
+  "subtitle": "Loop engineering and graph engineering for people who have used agents and want to build them: loops first, then graphs, then real problems. One small open-source library, agl, is the companion code.",
+  "description": "AI Agent Loops and Graphs: Novice to Ninja. An interactive textbook on building AI agents: the agent loop, tools, evaluators, graphs that run loops in parallel, memory, evals, and real-world patterns, with the open-source agl library.",
+  "level": "no background needed",
+  "accent": {
+    "light": [
+      "#1f5f8b",
+      "#174a6d",
+      "#e3eef7"
+    ],
+    "dark": [
+      "#7cb8e4",
+      "#a3cdee",
+      "#122537"
+    ]
+  },
+  "scripts": [
+    "data-whiteboard.js",
+    "widgets-agents.js"
+  ],
+  "links": [
+    {
+      "label": "whiteboard",
+      "chapter": "01-from-chatbots-to-agents"
+    },
+    {
+      "label": "pattern catalogue",
+      "chapter": "09-why-graphs"
+    }
+  ],
+  "brand": {
+    "eyebrow": "The library behind the book",
+    "name": "agl",
+    "tagline": "One loop. One graph. Everything measured.",
+    "pitch": "agl is a small Python framework for AI agents: the OpenAI SDK against any model API, a loop you can read on one page, a graph engine that runs in waves, a memory plugin, hooks for everything else, and an exam you write for your own agent. About 1,200 lines. This book explains every one of them and shows how to bend them to your own problem.",
+    "widgets": [
+      "pattern-picker"
+    ],
+    "fine": "Pick a problem shape and see the graph that fits it, in the six-line text form the library reads. Every pattern in the picker is built in Part III and applied in Part V."
+  },
+  "how": [
+    "<b>In order.</b> Loops before graphs. Each chapter uses only what the earlier ones taught.",
+    "<b>With the code open.</b> When a chapter names a file, open it: <code>agl/loop.py</code> is one page.",
+    "<b>With your hands.</b> Step the loop, type a graph, pick a pattern before you read on.",
+    "<b>With your own problem in mind.</b> Every example is a template. Part V shows five problems mapped to graphs; the sixth is yours."
+  ],
+  "parts": {
+    "Part I \u00b7 Foundations": "What an agent is, which problems suit a loop, and the anatomy of one.",
+    "Part II \u00b7 Building loops": "Your first loop, tools, evaluators, models and cost, and the problems every loop hits.",
+    "Part III \u00b7 Building graphs": "Why graphs, how the engine runs them, how to draw and design one, and the problems graphs hit.",
+    "Part IV \u00b7 Around the loop": "Plugins and tracing, memory, and the exam that keeps your agent honest.",
+    "Part V \u00b7 Real world": "A full case study, five problems mapped to five graphs, and shipping."
+  },
+  "credits": "The whiteboard this book follows was drawn for a class on loop engineering and graph engineering. Ideas borrowed with thanks from Sean Chen's Waku Agent, Andrej Karpathy's autoresearch, and the plugin harnesses and coding agents of 2026."
+}

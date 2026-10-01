@@ -1,0 +1,207 @@
+<!--meta {"title": "Drawing and designing a graph", "part": "Part III · Building graphs", "minutes": 11, "summary": "The diagram is the code: a six-line text form, back edges that jump instead of waiting, map nodes for run-time width, sub-graphs, export to Mermaid and excalidraw, and a design method that starts from the output contract."} -->
+
+<p class="lede">In this chapter, we will learn to write a graph the way it is drawn, and to design one
+from the end backwards. agl has a text form where <code>a -&gt; b, c</code> is an edge and
+<code>a ?label-&gt; b</code> is a router, so the picture on the whiteboard and the code in the file are the
+same object. We will learn the one subtlety in it, back edges, meet <code>fanout</code> and sub-graphs,
+draw any graph as Mermaid or an excalidraw file, and follow a five-step method from output contract to
+running graph. By the end you will draw a graph in text and know which arrows are dependencies and which
+are jumps.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the assignment board</h4>
+<p>Every desk has a whiteboard with arrows: who hands off to whom. The arrows that point forward are
+promises: rewrite waits for all three reporters. One arrow points backwards: when legal bounces a piece, it
+goes back to rewrite. Nobody reads that arrow as "rewrite must wait for legal before starting". It is a
+return path, not a prerequisite. The engine has to be told the difference, and it is.</p>
+</aside>
+
+<h2>Text as the source of truth</h2>
+
+<pre><code class="language-python">g = Graph.from_text("""
+    START -> plan
+    plan -> write_a, write_b, write_c          # fan-out: one wave, three parallel loops
+    write_a, write_b, write_c -> edit          # fan-in: edit waits for all three
+    edit -> review
+    review ?pass-> END                         # router: a function of the state picks the label
+    review ?fail-> edit                        # back edge: re-trigger edit with feedback
+""", nodes={"plan": plan_node, "write_a": ..., "edit": edit_node, "review": review},
+     routers={"review": lambda s: "pass" if s["ok"] else "fail"}, name="article")</code></pre>
+
+<p>Three rules. <code>a, b -&gt; c, d</code> adds an edge from every source to every target.
+<code>a ?label-&gt; b, c</code> adds a router label on <code>a</code> whose targets are <code>b</code> and
+<code>c</code>; the route function comes from <code>routers</code>. Anything after <code>#</code> is a
+comment. Every name must exist in <code>nodes</code>, or the parser refuses before any model call is paid
+for. The parser is thirty lines; its value is that a reviewer or a student can read the graph without
+reading Python, and that the same text can be drawn.</p>
+
+<h2>Forward edges wait, back edges jump</h2>
+
+<p><strong>An edge that closes a cycle re-triggers its target; it is not an input the target waits
+for.</strong> Consider a repair path:</p>
+
+<pre class="diagram">START -> write
+write -> assemble
+assemble -> build_check
+build_check ?ok-> END
+build_check ?fail-> fix
+fix -> assemble               <- closes a cycle: a back edge</pre>
+
+<p>If the engine counted <code>fix</code> as an input of <code>assemble</code>, then <code>assemble</code>
+would wait for <code>fix</code> to fire at least once, which happens only after a failure, which can only
+happen after <code>assemble</code> runs. The graph would stop after <code>write</code> with no error. So
+the engine finds back edges first, with a depth-first search from START that follows edges and router
+targets, and marks any edge pointing to a node still on the search stack:</p>
+
+<pre><code class="language-python">def back_edges(self) -> set[tuple[str, str]]:
+    out = defaultdict(list)
+    for s, d in self.edges: out[s].append(d)
+    for s, (_route, targets) in self.routers.items():
+        out[s].extend(d for ds in targets.values() for d in ds)
+    back, done, stack = set(), set(), []
+    def dfs(n):
+        stack.append(n)
+        for d in out[n]:
+            if d in stack: back.add((n, d))
+            elif d not in done: dfs(d)
+        stack.pop(); done.add(n)
+    dfs(START)
+    return back
+
+deps[d] = {s for (s, d) in edges if (s, d) not in back_edges}</code></pre>
+
+<p>The search walks START, write, assemble, build_check, through the router to fix, along
+<code>fix -&gt; assemble</code>, and finds <code>assemble</code> on the stack: a back edge. It still fires
+<code>assemble</code> when <code>fix</code> finishes; <code>assemble</code> no longer waits for it. Three
+kinds of arrow, then: forward edges are dependencies, back edges are jumps, routers are jumps decided at
+run time. Once those are distinct, every graph on the whiteboard reads unambiguously, including the loop
+board itself, which is a one-node graph with a back edge.</p>
+
+<h2>Width known only at run time: fanout</h2>
+
+<pre><code class="language-python">def write_one(chapter: dict, state: dict) -> dict:
+    r = writer.run(f"Book: {state['plan']['title']}\nChapter {chapter['n']}: {chapter['title']} ...")
+    return {**chapter, "html": r.answer, "ok": r.passed}
+
+g.node("write", fanout(write_one, over="plan_chapters", into="chapters", workers=6))</code></pre>
+
+<p>The outline node decides how many chapters there are; the write node runs one writer per chapter, up
+to six at a time, and collects the results into one list under one key. To the engine it is one node that
+happens to be busy inside. To the author it is the map step of map-reduce, and the node after it is the
+reduce.</p>
+
+<h2>Sub-graphs as nodes</h2>
+
+<pre><code class="language-python">inner = Graph("inner").node("x", lambda s: {"y": s["a"] * 2}).edge(START, "x")
+outer = Graph("outer").node("in", inner).node("z", lambda s: {"z": s["y"] + 1}).edge(START, "in").edge("in", "z")
+outer.run({"a": 5})    # y = 10, z = 11</code></pre>
+
+<p>The inner graph receives a copy of the state and returns the keys it added. A "research one company"
+graph becomes one node of a "research fifty companies" graph, through <code>fanout</code>, without
+changing a line inside it.</p>
+
+<h2>Drawing it</h2>
+
+<pre><code class="language-bash">uv run agl draw examples/graph_fanout.py --mermaid
+uv run agl draw examples/graph_fanout.py --excalidraw docs/article.excalidraw</code></pre>
+
+<pre class="out">flowchart LR
+  START(( ))
+  END(( ))
+  plan[plan]
+  write_a([write_a])
+  write_b([write_b])
+  write_c([write_c])
+  edit([edit])
+  review[review]
+  START --> plan
+  plan --> write_a
+  plan --> write_b
+  plan --> write_c
+  write_a --> edit
+  write_b --> edit
+  write_c --> edit
+  edit --> review
+  review -- pass --> END
+  review -- fail --> edit</pre>
+
+<p>Rounded shapes are loops, square ones plain functions, double-bordered ones sub-graphs. The excalidraw
+export lays nodes out in columns by topological layer (ignoring back edges, so repair nodes sit after the
+node they repair), draws routers as dashed arrows, and writes a file you can open and keep editing. The
+whiteboard this book follows is an excalidraw file; the graphs it inspired can be drawn back into the
+same format.</p>
+
+<h2>Designing from the output contract</h2>
+
+<p><strong>Start at the end. The strongest evaluator is the program that will consume the output, so
+design backwards from what it accepts.</strong></p>
+
+<pre class="diagram">1. output contract    what exactly must exist when the graph ends? a folder, a record, a reply. who checks it?
+                      write that check as a function or a command. it is the last node.
+2. stages             what has to be true before that check can pass? name the stages; each is a node.
+3. independence       which stages do not need each other? they share a wave. which repeat per item? fanout.
+4. decisions          where does the path depend on the result? a router. what happens on fail? a repair node
+                      that targets only what failed, with a back edge.
+5. toolboxes          give each node only the tools its stage needs. readers read; writers write; checkers run.</pre>
+
+<p>Then write the nodes. Most are a loop with a prompt template and an evaluator; some are plain Python;
+a few are another graph. Name every output key after the node that writes it. Run with stub nodes first
+(functions that return their own name) and read the path; the engine is fast enough that this costs
+nothing and catches every wiring mistake before a model is called.</p>
+
+<h2>Priya designs backwards</h2>
+
+<p><strong>Priya's output contract is her site's build check: a book folder that <code>build.py --check</code>
+accepts.</strong> That is her last node. Before it can pass, chapters must exist and be assembled into a
+folder: two stages. Chapters do not depend on each other: a fanout. Each chapter must meet the site's
+style rules before it is written to disk: a validator as each writer's evaluator. If the build fails,
+only the chapters it names should be rewritten: a fix node on the fail path, with a back edge to
+assemble. Writers get no tools; the build check gets a subprocess. She runs it with stubs, reads the path
+<code>outline, write, assemble, build_check</code>, and only then plugs in the model.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Write the whiteboard's graph board in text: a prompt node, six agent loops, a review and a final node,
+with a router on review that sends a fail back to all six. Build it with stub nodes that return their own
+name as a key, run it, print <code>state["_path"]</code>. Export it with <code>excalidraw()</code> and
+open the file next to the original board.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why a text form and not just Python calls?</summary><p>Both exist; the text calls the
+Python. The text form is for reading: a reviewer, a student or a future you sees the shape in six lines.</p></details>
+<details><summary>Could the engine avoid back edges by requiring routers for every loop-back?</summary><p>It
+could, and some engines do. It forbids the natural <code>fix -&gt; assemble</code> line. The search costs
+ten lines and lets people draw what they mean.</p></details>
+<details><summary>What if a graph has a cycle with no router at all?</summary><p>It would spin.
+<code>max_visits</code> stops each node after three runs and <code>max_steps</code> stops the run, and the
+errors list says which node hit the ceiling. A cycle should always have a condition; draw a router.</p></details>
+<details><summary>Can fanout branches have different shapes?</summary><p>fanout maps one function over a
+list. If the branches do different kinds of work, name them as separate nodes in a static fan-out, which
+also lets the trace show them separately.</p></details>
+<details><summary>Does the excalidraw export round-trip?</summary><p>One way. The export writes a file
+Excalidraw can open and edit. Reading a drawing back into a graph is a parser and a naming convention
+away, and an exercise in Chapter 18.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li><code>a -&gt; b, c</code> is an edge; <code>a ?label-&gt; b</code> is a router. Six lines draw most graphs.</li>
+<li>Forward edges are dependencies, back edges are jumps, routers are jumps decided at run time.</li>
+<li><code>fanout</code> for width known only at run time; sub-graphs for composition; <code>as_node</code> for loops.</li>
+<li>Design backwards from the output contract; the program that consumes the output is the last node.</li>
+<li>Run with stub nodes first and read the path before any model is called.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Why must <code>fix -&gt; assemble</code> not count as an input of assemble?</p>
+<details><summary>Answer</summary><p>fix only runs after a failure; if assemble waited for fix to fire once, it could never run the first time and the graph would stall with no error.</p></details></div>
+<div class="q"><p><strong>2.</strong> How does the engine tell a back edge from a forward edge?</p>
+<details><summary>Answer</summary><p>A depth-first search from START over edges and router targets; an edge to a node still on the search stack closes a cycle and is a back edge.</p></details></div>
+<div class="q"><p><strong>3.</strong> What is the first step of designing a graph, and why?</p>
+<details><summary>Answer</summary><p>Write the output contract as a check: the program that will consume the output is the strongest evaluator, and it becomes the last node that the model cannot skip.</p></details></div>
+</section>

@@ -1,0 +1,225 @@
+<!--meta {"title": "The engine", "part": "Part III · Building graphs", "minutes": 11, "summary": "agl/graph.py: nodes are functions of a shared state, edges say what may run next, ready nodes run together in waves and write disjoint keys, routers pick a path at run time, and errors are recorded, never raised."} -->
+
+<p class="lede">In this chapter, we will learn how a graph runs. Nodes are functions of a shared state,
+edges say what may run next, and the engine runs every ready node in the same wave, in parallel. We will
+read the engine, learn the one rule that makes parallel writes safe, meet routers, and see how errors
+and cycles are kept under control. By the end you will predict the waves of any graph before running it.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the morning meeting</h4>
+<p>The desk does not assign stories one at a time. At the morning meeting the editor looks at what is
+ready: the three reporters whose briefs are complete go out together. When they are all back, and only
+then, the rewrite editor can start. Each reporter files into her own slot on the page; two reporters
+writing into the same slot would be a mess, so the desk forbids it. The morning meeting is a wave. The
+slots are state keys.</p>
+</aside>
+
+<h2>Nodes, edges, state</h2>
+
+<p><strong>A node is a function that reads the state and returns the keys it wants to add. An edge says
+"when this finishes, that may start".</strong></p>
+
+<pre><code class="language-python">def plan(state: dict) -> dict:
+    return {"angles": ["a", "b", "c"], "audience": "students"}
+
+g = Graph("article")
+g.node("plan", plan)
+g.node("write_a", writer.as_node("Topic: {topic}\nAngle: {angles[0]}", key="para_a"))
+g.edge(START, "plan")
+g.edge("plan", "write_a", "write_b", "write_c")
+g.edge("write_a", "edit"); g.edge("write_b", "edit"); g.edge("write_c", "edit")
+state = g.run({"topic": "why agents need evaluators"})</code></pre>
+
+<p>The state is one dictionary. Every node gets a snapshot and returns a dictionary of new keys, which
+the engine merges in. A node never mutates the state it was given. Three kinds of thing can be a node: a
+plain function, a loop through <code>as_node</code> (its prompt is a template over the state), or a whole
+other graph. The engine does not care which.</p>
+
+<h2>The engine</h2>
+
+<p><strong>The engine keeps three facts per node: which inputs have ever arrived, which have arrived
+since it last ran, and how many times it has run.</strong></p>
+
+<pre><code class="language-python">deps[d]   = {s for (s, d) in edges if (s, d) is not a back edge}   # what d waits for
+ever[n]   = inputs that have fired at least once
+fresh[n]  = inputs that have fired since n last ran
+runs[n]   = how many times n has run
+
+def ready(jumps):
+    """Router jumps + every node whose inputs have all arrived and something new arrived."""
+    wave = []
+    for n in jumps + [n for n in nodes if fresh[n] and deps[n] <= ever[n]]:
+        if runs[n] >= nodes[n].max_visits:
+            errors[n] = f"max_visits={nodes[n].max_visits} reached"
+            continue
+        wave.append(n)
+    return wave</code></pre>
+
+<pre><code class="language-python">wave = ready([])
+while wave:
+    for n in wave:
+        runs[n] += 1; fresh[n].clear()
+    results = run in parallel: nodes[n].fn(snapshot of state) for n in wave      # a thread per node
+
+    jumps, writes = [], {}
+    for name, out, error, ms in results:
+        for key in out:
+            if writes.get(key, name) != name:
+                raise StateCollision(f"{name!r} and {writes[key]!r} both wrote {key!r}")
+            writes[key] = name
+            state[key] = out[key]
+        if error:
+            errors[name] = error
+            if nodes[name].on_error: jumps.append(nodes[name].on_error)
+            continue
+        if name in routers:
+            label = routers[name].route(state)
+            jumps.extend(routers[name].targets[label])          # END stops; anything else runs next
+        for (s, d) in edges:
+            if s == name: ever[d].add(name); fresh[d].add(name)
+    save_checkpoint_if_asked()
+    wave = ready(jumps)</code></pre>
+
+<p>Read the ready condition slowly. A node runs when all of its inputs have arrived at least once and at
+least one has arrived since it last ran. The first half is fan-in: the editor waits for all three
+reporters. The second half makes cycles work: if only one reporter refiles after a review, the editor runs
+again on the new copy instead of waiting for the other two to refile too.</p>
+
+<h2>The one rule: disjoint keys</h2>
+
+<p><strong>Two nodes in the same wave may not write the same key. If they do, the engine raises, because
+that is a bug in the graph, not a race to resolve.</strong></p>
+
+<pre><code class="language-python">g = Graph("x").node("a", lambda s: {"k": 1}).node("b", lambda s: {"k": 2}).edge(START, "a", "b")
+g.run({})      # StateCollision: 'a' and 'b' both wrote 'k'</code></pre>
+
+<p>This is the only place the engine raises. Everything else, a node that throws, a router that returns an
+unknown label, a cycle that runs too often, lands in <code>state["errors"]</code> and the graph finishes.
+A collision means two parallel branches were given the same output name, and no run can be trusted until
+that is fixed, so loud and early is right. The rule is easy to follow: name outputs after the node that
+makes them, and merge in a node after the fan-in.</p>
+
+<h2>Snapshots</h2>
+
+<p><strong>Within a wave, nobody sees anybody else.</strong> Each node gets a copy of the state taken
+before the wave starts; writes land after the wave. This is what makes "parallel" safe to reason about:
+there is no interleaving to think about, only the merge at the end, and the merge is checked.</p>
+
+<h2>Routers</h2>
+
+<p><strong>A router is a function of the state that returns a label; the label picks what runs next.</strong>
+This is the one place the graph lets the run decide.</p>
+
+<pre><code class="language-python">g.router("review", lambda s: "pass" if s["ok"] else "fail", {"pass": END, "fail": "edit"})
+g.router("classify", lambda s: s["kind"], {"billing": "billing", "bug": "bug", "other": ["reply"]})   # a label may fan out</code></pre>
+
+<p>After the node runs, the engine calls the route function on the state. END stops that path; any
+other target is jumped to directly: a router target does not wait for its static inputs, because the
+router is the input. This is how review cycles and classification branches are built. <code>max_visits</code>
+(3 by default) is what stops a cycle from spinning for ever; when a node hits it, the engine records the
+fact and the graph drains. <code>max_steps</code> (50 per run) is the outer net.</p>
+
+<h2>Errors, retries, resume</h2>
+
+<p><strong>A node that raises does not stop the graph. The error is recorded under the node's name, an
+<code>on_error</code> target gets a turn if there is one, and the rest of the graph continues as far as
+its inputs allow.</strong> Two more controls handle the real world:</p>
+
+<pre class="diagram">retries      Node(retries=2): re-run a node that raised, for transient model or network errors
+checkpoint   g.run(state, checkpoint="run.json"): the state is saved after every wave; if the file exists
+             when run() starts, finished nodes are not re-run and failed nodes get another turn</pre>
+
+<pre><code class="language-python">state = g.run({"topic": t}, checkpoint="data/course.json")   # crash halfway? run the same line again</code></pre>
+
+<p>Checkpointing is what turns a five-minute graph with a flaky step from a thing you babysit into a
+thing you run again. Delete the file to start over.</p>
+
+<h2>Type a graph, see its waves</h2>
+
+<div class="widget" data-widget="wave-scheduler"></div>
+
+<p>Try the sample first: five working nodes, four waves, three nodes in one wave. Delete the fan-out and
+make it a chain, and the waves become one per node. Add a sixth writer: the number of waves does not
+change. That is the whole case for graphs when the work is known: more parallel work costs no more wall
+clock.</p>
+
+<pre class="calc">sequential     plan, write_a, write_b, write_c, edit, review = 6 steps
+in waves       {plan} {write_a, write_b, write_c} {edit} {review} = 4 waves
+if a writer takes 45 s       three writers in sequence 135 s; one wave 45 s (the slowest writer)</pre>
+
+<h2>What the engine records</h2>
+
+<p><strong>When a run ends, the state carries <code>_path</code> (the nodes in the order they finished),
+<code>_ms</code>, and <code>errors</code>.</strong> Every wave, node and route is also emitted to the
+plugins, so a trace shows the graph exactly as it ran, and the console prints it live:</p>
+
+<pre class="out">╔═ graph article: 6 nodes
+║ ▶ plan
+║ ■ plan 11743ms
+║ ▶ write_a
+║ ▶ write_b
+║ ▶ write_c
+║ ■ write_a 49154ms  ■ write_b 40259ms  ■ write_c 28705ms
+║ ▶ edit
+║ ■ edit 30943ms
+║ ▶ review
+║ ⤷ review --pass--> END
+╚═ done: plan → write_a → write_b → write_c → edit → review</pre>
+
+<p>The three writers start together and finish in their own time; the editor waits for the slowest.</p>
+
+<h2>Priya runs her graph</h2>
+
+<p><strong>Priya's first run of the course builder stops after two nodes with no error.</strong> The
+console shows outline and write finishing and nothing else starting. She reproduces it offline in four
+lines with stub nodes, because a forty-line engine lets you do that, and finds that a repair edge was
+being counted as an input. <a href="/agents/11-drawing-and-designing-a-graph/">Chapter 11</a> explains
+back edges and the fix. The lesson she keeps: a graph that stops with no error is waiting for an input;
+look at the deps of the node that never ran.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>In the wave scheduler, write the whiteboard's graph board as text: a prompt node, six agent loops A to
+F, a review, a final node. Predict the waves before you look. Then make loops D and E depend on A and B,
+so the fan-out has two stages, and count the waves again.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why threads and not async?</summary><p>The work inside a node is a blocking model
+call, threads are enough for six parallel nodes, and the engine stays forty lines shorter. A graph that
+needed thousands of concurrent nodes would want async.</p></details>
+<details><summary>What if two parallel nodes need to update the same list?</summary><p>Give them
+different keys and add a small merge node after the fan-in. The merge is then explicit, testable and
+cannot race.</p></details>
+<details><summary>Does a router replace the static edges from its node?</summary><p>No. Static edges
+still fire. A router adds jumps on top. Most routers sit on nodes whose only ways out are the router's
+labels, which keeps the picture simple.</p></details>
+<details><summary>What is max_visits for?</summary><p>The ceiling on how often one node runs in one graph
+run, 3 by default so review cycles work. When a node hits it, the engine records the error and stops
+feeding that node, and the graph drains.</p></details>
+<details><summary>What does the checkpoint file contain?</summary><p>The state without private keys, each
+node's run count, which inputs have arrived, and the path so far. It is plain JSON; you can read it to see
+where a run stopped.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>A node is a function of the state that returns new keys. An edge says what may run next.</li>
+<li>Ready: all inputs have arrived at least once and something new arrived since the node last ran.</li>
+<li>Ready nodes run in one wave, in parallel, on snapshots. Disjoint keys, or the engine raises.</li>
+<li>Routers decide a label from the state; targets are jumped to directly. max_visits stops cycles.</li>
+<li>Node errors are recorded, retries handle flakiness, checkpoints make a run resumable.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> State the ready rule.</p>
+<details><summary>Answer</summary><p>A node runs in the next wave when every input it depends on has fired at least once, at least one has fired since the node last ran, and it has not reached max_visits.</p></details></div>
+<div class="q"><p><strong>2.</strong> Why does the engine raise on a state collision but not on a node exception?</p>
+<details><summary>Answer</summary><p>A collision is a design bug that invalidates every run, so it must be loud and immediate; a node exception is a run-time failure the graph can record and route around.</p></details></div>
+<div class="q"><p><strong>3.</strong> Three writers take 49, 40 and 29 seconds. How long does their wave take, and a chain?</p>
+<details><summary>Answer</summary><p>The wave takes about 49 seconds (the slowest); a chain would take 49 + 40 + 29 = 118 seconds.</p></details></div>
+</section>

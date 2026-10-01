@@ -1,0 +1,206 @@
+<!--meta {"title": "Plugins, tracing and skills", "part": "Part IV · Around the loop", "minutes": 10, "summary": "Everything around the loop is a hook: Trace writes every event, Console prints it, Budget stops a runaway, Compact keeps the history short, Approval puts a person in the path, and Skills turn markdown pages into standing instructions."} -->
+
+<p class="lede">In this chapter, we will learn how agl keeps the loop and the graph small: everything that
+is not control flow is a plugin, an object with some of a dozen hook methods. We will read the built-ins,
+learn what to log and why the trace is the most important file in the project, meet the two plugins
+that make an unattended agent safe, and learn why a markdown page in <code>skills/</code> is the cheapest
+way to change an agent's behaviour. By the end you will write a plugin in ten lines and know which of the
+built-ins every production loop should carry.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the people around the reporter</h4>
+<p>The reporter writes the story. Around her, without touching it, are the people who make the newsroom
+work: the archivist who logs every call (Trace), the news editor who shouts progress across the room
+(Console), the managing editor who pulls the plug on a story that has eaten its budget (Budget), the
+sub-editor who trims old notes so the file stays readable (Compact), the lawyer who must sign off before
+anything risky goes out (Approval), and the style guide on every desk (Skills). None of them is in the
+loop. All of them see everything it does.</p>
+</aside>
+
+<h2>Hooks</h2>
+
+<p><strong>A plugin is an object. The loop and the graph call named methods on it, if they exist.</strong></p>
+
+<pre><code class="language-python">class Plugins:
+    def __init__(self, *plugins): self.items = list(plugins)
+    def emit(self, hook, *args):
+        for p in self.items:
+            fn = getattr(p, hook, None)
+            if fn: fn(*args)
+    def system_prompt(self, run) -> str:            # plugins may append text to the system prompt
+        return "\n\n".join(t for p in self.items if (fn := getattr(p, "system_prompt", None)) and (t := fn(run)))</code></pre>
+
+<pre class="diagram">loop    on_run_start(run)                 on_run_end(run, answer)
+        on_llm_request(run, messages)     on_llm_response(run, reply)
+        on_tool_call(run, name, args)     on_tool_result(run, name, args, result)
+        on_evaluate(run, verdict)
+graph   on_graph_start(graph, state)      on_graph_end(graph, state, path)
+        on_node_start(graph, node, state) on_node_end(graph, node, out, error, ms)
+        on_route(graph, router, label, target)
+        on_event(graph, node, kind, ev)   a node called state["_emit"](kind, **ev)
+both    system_prompt(run) -> str         appended to the system prompt before the first call</pre>
+
+<p>Two hooks can change the run. <code>on_llm_request</code> receives the message list and may edit it
+(Compact does). <code>on_tool_call</code> may raise <code>ToolDenied</code> to stop a tool (Approval
+does). Everything else observes. A loop running inside a graph inherits the graph's plugins, so one Trace
+sees the whole run, outer and inner.</p>
+
+<h2>Trace: what to log</h2>
+
+<p><strong>Trace appends one JSON line per event. It is the most important plugin in the library, because
+every diagnosis in Chapters 8 and 12 is read from its output.</strong></p>
+
+<pre><code class="language-json">{"kind": "llm", "run": "cf7618aa", "step": 2, "prompt_tokens": 3970, "completion_tokens": 51,
+ "reasoning_tokens": 18, "cost_usd": 0.00013, "ms": 1238, "tool_calls": [{"name": "calc", "arguments": {"expression": "217 * 7"}}]}
+{"kind": "tool", "run": "cf7618aa", "step": 2, "name": "calc", "arguments": {"expression": "217 * 7"}, "result": "1519"}
+{"kind": "evaluate", "run": "cf7618aa", "step": 3, "passed": true, "feedback": "", "score": 1.0}
+{"kind": "node_end", "graph": "article", "node": "write_a", "ms": 49154, "error": null, "keys": ["para_a", "para_a_run"]}</code></pre>
+
+<p>What to log, and why: tokens and cost per call (so you can price and find bloat), milliseconds per
+call and per node (so you can find the slow stage), every tool call with its arguments and a cut of its
+result (so you can see what the model reached for and what came back), every verdict with its feedback
+(so you can find rubric bugs), every route (so you can see why the path went where it went). Text is
+cut at 2,000 characters per event so a day's trace stays readable. The file is append-only; grep it.</p>
+
+<p><code>agl viz traces/run.jsonl --open</code> turns a trace into one page: the graph drawn, the waves
+as chips, every event in order, and a replay button that plays the run back without paying for a model.
+Use it to show a run to someone who was not there, including yourself tomorrow.</p>
+
+<h2>Console, Budget</h2>
+
+<p>Console prints one line per step to the terminal for a person watching; off in batch runs, on in
+development. Budget raises <code>BudgetExceeded</code> when one run spends more than a dollar cap or takes
+more than a step cap; the loop catches it and ends the run with status "budget". The client's
+process-wide cap, <code>AGL_BUDGET_USD</code>, is the second net for the whole night. Every unattended
+loop carries both.</p>
+
+<h2>Compact: keeping the history short</h2>
+
+<pre><code class="language-python">@dataclass
+class Compact:
+    max_chars: int = 60_000
+    keep_recent: int = 2
+    head: int = 400
+    def on_llm_request(self, run, messages):
+        total = sum(len(str(m.get("content") or "")) for m in messages)
+        if total <= self.max_chars: return
+        tool_idx = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+        for i in tool_idx[:-self.keep_recent]:
+            c = messages[i]["content"]
+            if len(c) > self.head + 80:
+                messages[i]["content"] = c[:self.head] + f"\n... [compacted: {len(c) - self.head} characters removed]"</code></pre>
+
+<p>Deterministic and free. Once the history passes a size, every tool result older than the most recent
+two is cut to its head plus a note of what was removed. The model keeps the gist and the loop stops
+paying for whole files on every call. Two refinements when the gist is not enough: a model-written summary
+in place of the cut (one call, when the result was prose), or offloading the full text to a file and
+leaving a handle the model can re-read with a tool. Both are a few lines in this hook.</p>
+
+<h2>Approval: a person in the path</h2>
+
+<pre><code class="language-python">loop = Loop(llm, tools=Toolbox(read_file, write_file, shell),
+            plugins=default_plugins() + Plugins(Approval(guarded=("shell", "write_file"), ask=my_policy)))</code></pre>
+
+<p>Guarded tools run only if <code>ask(name, args)</code> says yes. In a terminal that is a prompt; in a
+server it is an allow-list, a queue a person reviews, or a rule ("writes under drafts/ are fine; anything
+else asks"). A denial goes back to the model as text and the loop continues. This is the shape of
+human-in-the-loop that works: the human gates actions, not thoughts, and the agent does not block on a
+person for anything that does not need one.</p>
+
+<h2>Skills: standing instructions</h2>
+
+<pre><code class="language-python">@dataclass
+class Skills:
+    dir: str | Path = "skills"
+    only: list[str] | None = None            # pick a subset per loop
+    def system_prompt(self, run):
+        files = sorted(Path(self.dir).glob("*.md"))
+        if self.only: files = [f for f in files if f.stem in self.only]
+        return "# Skills\n\n" + "\n\n".join(f"## {f.stem}\n{f.read_text().strip()}" for f in files) if files else None</code></pre>
+
+<p>Each <code>skills/*.md</code> is one page on how to do one kind of task well, appended to the system
+prompt under a heading. This is procedural memory: the team's rules, in the repository, versioned, read
+on every run. agl ships two: <code>plain-writing.md</code> (the voice, and the rule never to invent a
+number, a study or a citation) and <code>course-chapter.md</code> (the chapter contract). Give each loop
+only the skills its job needs with <code>only=</code>; a writer does not need the shell safety rules.</p>
+
+<p>When a model keeps breaking a rule, write the rule in a skill before you touch a prompt. A prompt lives
+in one loop; a skill lives in the project and is read by every loop that opts in.</p>
+
+<h2>Presets</h2>
+
+<pre><code class="language-python">def default_plugins(verbose=True) -> Plugins:
+    return Plugins(Trace(), Console(verbose=verbose), Budget())
+
+production = default_plugins(verbose=False) + Plugins(Compact(), Approval(ask=policy), Skills(only=[...]))</code></pre>
+
+<p><code>Plugins()</code> is the minimal preset; <code>default_plugins()</code> is the standard one. A
+production loop adds Compact, Approval with a policy, and the skills its job needs. The idea that
+everything around the loop is a plugin is borrowed from the plugin harnesses of 2026, where even the model
+adapters and the user interface are plugins on a small kernel; four hooks and one <code>emit</code> are
+enough for a library this size.</p>
+
+<h2>Writing a plugin</h2>
+
+<p><strong>Priya wants to know how often her writers are sent back by the evaluator.</strong></p>
+
+<pre><code class="language-python">class RetryCounter:
+    def __init__(self): self.fails = {}
+    def on_evaluate(self, run, verdict):
+        if not verdict.get("passed"):
+            self.fails[run.name] = self.fails.get(run.name, 0) + 1
+    def on_graph_end(self, graph, state, path):
+        print("evaluator rejections per loop:", self.fails)
+
+g.run(state, plugins=default_plugins() + Plugins(RetryCounter()))</code></pre>
+
+<p>She touched neither the loop nor the graph nor the writers. The counter sees every verdict because
+loops inside the graph inherit its plugins. It tells her two of three chapters were bounced once for
+length, which tells her the word range in her chapter skill is too tight for first drafts.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Write a plugin that records, per tool name, how many calls and how many characters of result. Add it
+to the loop example. Then add <code>skills/terse.md</code> saying "answer in at most twelve words" and run
+with <code>Skills(only=["terse"])</code>. Finally, add Approval with <code>ask=lambda n, a: False</code>
+and a shell tool, and read what the model does when every action is denied.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why hooks and not inheritance?</summary><p>Several plugins have to see the same event.
+A list of objects with optional methods is the simplest thing that allows that, and it keeps the loop
+ignorant of which plugins exist.</p></details>
+<details><summary>Can a plugin rewrite history?</summary><p>Only Compact-style edits in
+<code>on_llm_request</code>, and they should be visible in the text ("[compacted: ...]"). A plugin that
+silently rewrote messages would make traces lie.</p></details>
+<details><summary>What happens if a plugin raises?</summary><p>The exception propagates and the loop ends
+with status "error". Plugins should be boring; Budget and Approval are the only built-ins that raise, on
+purpose.</p></details>
+<details><summary>Is a skill just a prompt fragment?</summary><p>Yes, with three properties a pasted prompt
+lacks: it lives in the repository, it is versioned, and it is read by every run that opts in. The team
+owns it, not the person typing today.</p></details>
+<details><summary>Why are plugins locked when a graph emits?</summary><p>Several nodes in one wave run in
+threads and may emit at the same moment. The engine takes a lock around every emit, so a trace file never
+interleaves two lines.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>A plugin is an object with some of a dozen hook methods. Two can change the run: on_llm_request edits messages, on_tool_call can deny a tool.</li>
+<li>Trace everything that costs or decides: tokens, dollars, milliseconds, tool calls, verdicts, routes. Then grep it.</li>
+<li>Production loops carry Budget, Compact, Approval with a policy, and the skills their job needs.</li>
+<li>When a model keeps breaking a rule, write the rule in a skill, not a prompt.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Which two hooks can change a run, and how?</p>
+<details><summary>Answer</summary><p><code>on_llm_request</code> may edit the message list (Compact shortens old tool results); <code>on_tool_call</code> may raise ToolDenied (Approval stops a guarded tool and the model reads a denial).</p></details></div>
+<div class="q"><p><strong>2.</strong> What does Compact remove and what does it keep?</p>
+<details><summary>Answer</summary><p>It cuts tool results older than the most recent two to their first 400 characters plus a note of how much was removed, once the history passes a size; recent results and all non-tool messages are untouched.</p></details></div>
+<div class="q"><p><strong>3.</strong> Why does a loop running inside a graph show up in the graph's trace?</p>
+<details><summary>Answer</summary><p>The engine passes its plugins into each node's state, and a loop running as a node merges them with its own, so one Trace receives the loop's events too.</p></details></div>
+</section>

@@ -1,0 +1,191 @@
+<!--meta {"title": "From chatbots to agents", "part": "Part I · Foundations", "minutes": 9, "summary": "What changes when a model gets tools, a loop and an editor: the four things an agent has that a chatbot does not, the five-rung ladder, and the whiteboard this book follows."} -->
+
+<p class="lede">In this chapter, we will learn what an agent is, precisely enough to build one. You have used
+chatbots and probably an agent or two. We will name the four things an agent has that a chatbot does
+not, climb the five-rung ladder from prompt engineering to graph engineering, and read the whiteboard
+that this whole book follows. By the end you will be able to say in one sentence what a loop is, what a
+graph is, and why the order matters.</p>
+
+<aside class="note analogy">
+<h4>The analogy: a newsroom</h4>
+<p>A newspaper is not written by one person typing one perfect sentence. A reporter chases a story: asks
+a question, reads a document, checks a number, asks again, until an editor says the piece is ready. That
+is a loop. On a big day the desk sends three reporters out at once on three angles, a rewrite editor
+stitches their copy together, and the editor-in-chief signs off. That is a graph. Everything in this book
+is a newsroom. The reporter is the loop, the desk is the graph, the editor is the evaluator, the archive
+is memory, and the style guide is a skill.</p>
+</aside>
+
+<h2>Same model, different access</h2>
+
+<p><strong>An agent is a model plus tools, a loop, an evaluator, and a place to work. The model is the
+same one you chat with; everything around it is new.</strong> Put a chatbot and a coding agent side by
+side and the model is the least interesting difference.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Chatbot</th><th>Agent</th></tr></thead>
+<tbody>
+<tr><td>Sees</td><td>what you paste</td><td>your files, through tools it calls itself</td></tr>
+<tr><td>Does</td><td>writes text</td><td>reads, writes, runs, searches; sees the result; acts again</td></tr>
+<tr><td>Stops when</td><td>it finishes a reply</td><td>an evaluator says pass, or a budget runs out</td></tr>
+<tr><td>Remembers</td><td>this conversation</td><td>the project's standing instructions, and a memory across runs</td></tr>
+<tr><td>Works in</td><td>a text box</td><td>a folder, with a shell and a test suite</td></tr>
+</tbody></table></div>
+
+<p>Each row is a thing you build. Tools give the model hands. The loop lets it act, look, and act again.
+The evaluator decides when it is done, so the model does not decide that for itself. The place to work,
+a folder with a brief and a memory, is what makes the same agent useful on Tuesday that was useful on
+Monday. In code, these are four arguments to one constructor:</p>
+
+<pre><code class="language-python">from agl import LLM, Loop, Toolbox, check, default_plugins
+from agl.std_tools import read_file, grep, shell
+
+loop = Loop(
+    LLM(),                                   # the model
+    tools=Toolbox(read_file, grep, shell),   # what it can do
+    evaluate=check(lambda a: a.strip().isdigit() or "reply with only the number"),   # who says it is done
+    plugins=default_plugins(),               # trace, console, budget: the place to work
+)
+result = loop.run("How many lines does agl/loop.py have, times 7? Reply with only the number.")</code></pre>
+
+<p>Take away the tools and it is a chatbot with a loop. Take away the evaluator and it is a chatbot that
+calls tools until it feels like stopping. Take away the loop and it is a chatbot. We will build each piece
+in Part II.</p>
+
+<h2>Three sentences to hold</h2>
+
+<p><strong>The unit of design is no longer the prompt. It is the loop around the prompt, and then the
+graph around the loops.</strong> Three short lines from people who build agents for a living say it
+faster than a chapter can.</p>
+
+<pre class="chat">@steipete:          Here's your monthly reminder that you shouldn't be prompting coding agents anymore.
+                    You should be designing loops that prompt your agents.
+@steipete:          Are we still talking loops or did we shift to graphs yet?
+@sean_ai_stories:   a loop discovers what to do next. a graph pre-determines what happens next.</pre>
+
+<p>The first says where the work is: in the loop, not the prompt. The second says the loop is not the
+end. The third is the cleanest definition of the difference we know, and it is the spine of this book: a
+loop lets the model decide at run time what to do next; a graph fixes the order in advance and lets the
+model work inside each step.</p>
+
+<h2>The ladder</h2>
+
+<p><strong>Agent engineering is a ladder of five rungs, and each rung keeps the ones below it.</strong></p>
+
+<pre class="diagram">rung 5   GRAPH engineering     several loops in a fixed order, some in parallel, with a reviewer
+rung 4   LOOP engineering      prompt -> model -> action -> result -> evaluate -> again
+rung 3   SKILLS                standing instructions, "how we do this here", in files the agent reads
+rung 2   CONTEXT engineering   put the right facts and documents in front of the model
+rung 1   PROMPT engineering    phrase the question well</pre>
+
+<p>Rung 1 is where everyone starts: "explain like I am five" and "answer in JSON" change the output. Rung
+2 is the discovery that the model is only as good as what it can see, so you paste in the document, the
+error log, the schema. Rung 3 is writing down how your team wants things done, once, in a file the agent
+reads every time. Rung 4 is the jump: instead of asking once, you let the model act, look at what
+happened, and ask again, with a check at the end. Rung 5 is the realisation that when you already know
+the order of the work, you should not make the model rediscover it on every run.</p>
+
+<p>This book is rungs 4 and 5, with rung 3 as a tool you will use constantly. It assumes you have done
+rungs 1 and 2 by using agents.</p>
+
+<h2>The whiteboard</h2>
+
+<p><strong>This book follows one drawing, made for a class on loop engineering and graph engineering.</strong>
+It is rendered below from its original file. Step through the boards now. You do not need to understand
+them yet; the point is to see the shape of the argument before we take it apart.</p>
+
+<div class="widget" data-widget="whiteboard"></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Board</th><th>What it says</th><th>Where we build it</th></tr></thead>
+<tbody>
+<tr><td>Title and the two quotes</td><td>Design loops, then graphs.</td><td>This chapter</td></tr>
+<tr><td>Two types of tasks; what gets measured gets improved; open-ended vs closed</td><td>Which problems a loop can own.</td><td><a href="/agents/02-which-problems-suit-a-loop/">Chapter 2</a></td></tr>
+<tr><td>AI coding agent; a project folder with CLAUDE.md</td><td>How an agent differs from a chatbot, and what you hand it.</td><td>This chapter, <a href="/agents/04-your-first-loop/">Chapter 4</a></td></tr>
+<tr><td>Loop</td><td>Prompt, LLM, Action, Result, Evaluate, Pass or Fail, Final Answer.</td><td><a href="/agents/03-anatomy-of-a-loop/">Chapter 3</a>, Part II</td></tr>
+<tr><td>Graph</td><td>Prompt, Agent, Agent Loops A to F, Review, Final.</td><td>Part III</td></tr>
+<tr><td>Set up the loop and the environment; the database example</td><td>How to hand a real project to a loop.</td><td><a href="/agents/15-evals-and-the-improvement-loop/">Chapter 15</a></td></tr>
+<tr><td>Examples; autoresearch; /goal</td><td>Projects with a number to improve, and a loop that improves a project on its own.</td><td><a href="/agents/15-evals-and-the-improvement-loop/">Chapter 15</a></td></tr>
+</tbody></table></div>
+
+<h2>The code behind the book</h2>
+
+<p><strong>agl is a small Python library that implements every board, and it is the worked example of
+every chapter.</strong> Its name stands for agentic graph loop. It is open source, it uses the OpenAI SDK
+against any model API, and it is about 1,200 lines, split so that each idea lives in one file.</p>
+
+<pre class="diagram">agl/llm.py       one client for every model call: tokens, dollars, milliseconds, cache, retries
+agl/tools.py     a Python function becomes a tool the model can call
+agl/loop.py      THE LOOP: prompt -> LLM -> action -> result -> evaluate -> final       (Part II)
+agl/graph.py     THE GRAPH: nodes, edges, routers, waves, state                         (Part III)
+agl/plugins.py   hooks around the loop: trace, console, budget, skills                  (Part IV)
+agl/memory.py    long-term memory behind a small backend interface; mem lib ships     (Part IV)
+agl/eval.py      the exam you write for your own agent                                 (Part IV)
+agl/viz.py       draw a graph as Mermaid or excalidraw; replay a run                    (Part III)</pre>
+
+<p>Why so small? Because you have to read it, and because every line we did not write is a line that
+cannot hide a bug. When a chapter names a file, open it next to the page. Every example in the book is
+a template: the course builder in Part V writes books; change the output contract and the same shape
+writes reports, reviews code, or triages tickets.</p>
+
+<h2>Who this book is for</h2>
+
+<p><strong>You, if you have used agents and want to build them, and want to trust what you built.</strong>
+Our running student is Priya. She is building an interactive course app. She wants a program that can
+take a topic, or a PDF, and write a course from it, and she wants to be sure of the result before a
+student sees it. She builds a loop in Part II, a graph in Part III, and ships the course builder in Part
+V. Every chapter ends with her applying the idea to her app, so that you can apply it to yours.</p>
+
+<aside class="note tip">
+<h4>How to read this book</h4>
+<p>In order: loops before graphs. With the code open. With your hands: step the loop simulator, type a
+graph into the wave scheduler, pick a pattern. Every chapter ends with questions and folded answers;
+answer before you unfold. Where a chapter shows a problem, it shows the symptom first, so that you will
+recognise it in your own trace before you know its name.</p>
+</aside>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Step through every board of the whiteboard. Write one sentence for the loop board and one for the
+graph board. Keep them. After Part II and Part III, compare. Then find the one arrow on the loop board
+that points backwards. Everything about loops is in that arrow.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Is a loop just a chatbot that calls itself?</summary><p>Almost. The difference is the
+boxes after the model: Action and Result, where the model does something and sees what happened, and
+Evaluate, where something other than the model decides whether to stop. A chatbot has neither.</p></details>
+<details><summary>If graphs are better, why learn loops first?</summary><p>Because a graph is made of
+loops. Every node that does real work in a graph is a loop or a plain function. You cannot design the
+desk without knowing what a reporter does.</p></details>
+<details><summary>Do I need to know Python?</summary><p>You need to read it. The library is written to be
+read: short functions, plain names, comments where a decision was made. If you can follow a recipe you
+can follow <code>agl/loop.py</code>.</p></details>
+<details><summary>Which model should I use?</summary><p>Any model with tool calling, through any
+OpenAI-compatible API. The book names models by role: a worker, a judge, a specialist. Chapter 7 shows
+how to choose them by measurement rather than reputation.</p></details>
+<details><summary>Is this book about a particular vendor's agent product?</summary><p>No. It is about
+the loop and the graph, which every agent product implements somewhere inside. agl is small enough to
+show them bare.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>An agent is a model plus tools, a loop, an evaluator and a place to work. The model is the same.</li>
+<li>Design loops that prompt your agents; then ask whether you need a graph.</li>
+<li>A loop discovers what to do next. A graph pre-determines what happens next.</li>
+<li>Five rungs: prompt, context, skills, loop, graph. This book is rungs 4 and 5.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Name the four things an agent has that a chatbot does not.</p>
+<details><summary>Answer</summary><p>Tools (it acts and sees results), a loop (it acts again), an evaluator (something else decides when it is done), and a place to work with standing instructions and memory.</p></details></div>
+<div class="q"><p><strong>2.</strong> In one sentence, what is the difference between a loop and a graph?</p>
+<details><summary>Answer</summary><p>A loop lets the model decide at run time what to do next, step by step; a graph fixes the order of steps in advance and lets the model work inside each step.</p></details></div>
+<div class="q"><p><strong>3.</strong> Which rung of the ladder do skills belong to, and what are they?</p>
+<details><summary>Answer</summary><p>Rung 3: standing instructions on how work is done here, kept in files the agent reads on every run.</p></details></div>
+</section>

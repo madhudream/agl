@@ -1,0 +1,161 @@
+<!--meta {"title": "Why graphs", "part": "Part III · Building graphs", "minutes": 11, "summary": "A loop discovers what to do next; a graph pre-determines it. When to reach for a graph, the seven patterns you will reuse, their industry names, and the shape of the whiteboard's graph board as code."} -->
+
+<p class="lede">In this chapter, we will learn when a loop is the wrong tool and a graph is the right
+one. We will take Sean Chen's definition apart, name the signs that your loop wants to be a graph, and
+build the pattern catalogue: sequence, fan-out and fan-in, map, router, review cycle, repair path, and
+sub-graph, with the names the industry uses for the same shapes. By the end you will look at a task and
+see its graph before you write a line.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the desk</h4>
+<p>A reporter working alone decides her next move as she goes. That is right for a story nobody has
+covered before. But the paper also prints the weather, the listings and the match reports every day, and
+nobody rediscovers how to make those pages. The desk has a plan: who writes what, who checks it, in what
+order, which parts happen at the same time. A graph is the desk's plan written down so that a machine can
+run it.</p>
+</aside>
+
+<h2>The definition, taken apart</h2>
+
+<p><strong>A loop discovers what to do next. A graph pre-determines what happens next.</strong> In a
+loop, the model reads the history and chooses: call this tool, or answer. The order of work emerges from
+those choices, and it can be different every run. In a graph, the order is fixed by the author: this node,
+then these three at once, then that one, then a review. The model works inside each node, where it still
+discovers, but it does not decide the shape of the whole.</p>
+
+<pre class="diagram">loop     flexible, exploratory, cheap to write, hard to predict; cost and latency vary with the model's choices
+graph    predictable, parallel, testable node by node, more to write; the model cannot skip the review</pre>
+
+<p>Neither is better. A loop is right when you do not know the steps. A graph is right when you do, and
+the whiteboard's graph board draws the moment that changes: one prompt, one agent that plans, six agent
+loops working at once, a review, a final answer.</p>
+
+<h2>Signs your loop wants to be a graph</h2>
+
+<pre class="diagram">1. the task has stages you could name            find, then compute, then write
+2. parts of the work do not depend on each other  three sections, five tickets, forty files
+3. something must happen every time               a review, a test run, a policy check, no matter what the model thinks
+4. different stages want different tools          a reader with read_file; a writer with none; a checker with shell
+5. the loop flails or bloats                      Chapter 8's problems 2 and 4 are often a missing structure
+6. you want to see where the time and money go    a graph reports per node; a loop reports per step</pre>
+
+<p>Sign 3 is the strongest. In a loop, the model may decide it is done and skip the test. In a graph the
+test is a node on the path to END, and the model cannot route around it.</p>
+
+<h2>The pattern catalogue</h2>
+
+<p><strong>Seven shapes cover nearly every graph you will build.</strong> Pick one below and read its
+text form; the engine in <a href="/agents/10-the-engine/">Chapter 10</a> runs exactly these lines.</p>
+
+<div class="widget" data-widget="pattern-picker"></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Pattern</th><th>Shape</th><th>Also called</th><th>Use when</th></tr></thead>
+<tbody>
+<tr><td>Sequence</td><td>a → b → c</td><td>prompt chaining</td><td>each step needs the last one's output</td></tr>
+<tr><td>Fan-out, fan-in</td><td>a → b, c, d → e</td><td>parallelisation (sectioning); voting when b, c, d do the same task</td><td>independent pieces, then one step that needs them all</td></tr>
+<tr><td>Map</td><td>one node runs a function over a list</td><td>map-reduce; orchestrator-workers when the list comes from a planner node</td><td>the same work for every item, count known at run time</td></tr>
+<tr><td>Router</td><td>a ?label→ b or c</td><td>routing; handoff when the targets are specialist loops</td><td>the next step depends on what the input turns out to be</td></tr>
+<tr><td>Review cycle</td><td>draft → review ?fail→ draft</td><td>evaluator-optimizer; reflection</td><td>the output needs a reader's verdict and a chance to fix it</td></tr>
+<tr><td>Repair path</td><td>check ?fail→ fix → (back)</td><td>self-healing; test-driven loop</td><td>a program can say what is wrong and a fix should target only that</td></tr>
+<tr><td>Sub-graph</td><td>a graph as one node</td><td>composition; hierarchical agents</td><td>a whole workflow repeated inside a bigger one</td></tr>
+</tbody></table></div>
+
+<p>The names in the third column are the ones you will meet in other frameworks and papers. They are the
+same shapes. "Orchestrator-workers" is a planner node that produces a list, a map node that runs a worker
+per item, and a merge node. "Evaluator-optimizer" is a review cycle. "Handoff" is a router whose targets
+are loops with different system prompts and tools. Learn the seven shapes and the names stop mattering.</p>
+
+<h2>The whiteboard's graph as code</h2>
+
+<p><strong>Prompt, Agent, Agent Loops A to F, Review, Final: a planner, a fan-out, a fan-in, a review
+cycle.</strong> In agl's text form:</p>
+
+<pre><code class="language-python">g = Graph.from_text("""
+    START -> plan
+    plan -> loop_a, loop_b, loop_c, loop_d, loop_e, loop_f     # one wave, six loops in parallel
+    loop_a, loop_b, loop_c, loop_d, loop_e, loop_f -> edit     # fan-in: edit waits for all six
+    edit -> review
+    review ?pass-> END
+    review ?fail-> edit                                        # review cycle
+""", nodes={...}, routers={"review": lambda s: "pass" if s["ok"] else "fail"})</code></pre>
+
+<p>One node is on the board only by implication: <code>edit</code>, the step that makes one thing out of
+six. Six loops that never see each other cannot produce one coherent result, however good each is; a
+reviewer that judges their stapled output will fail it every time. Whenever a goal needs information that
+no single node has, add the node that has it. This is the first design rule of graphs, and
+<a href="/agents/12-graph-problems-and-fixes/">Chapter 12</a> shows what happens when you forget it.</p>
+
+<h2>Composing patterns</h2>
+
+<p><strong>Real graphs are two or three patterns joined.</strong></p>
+
+<pre class="diagram">course builder     sequence (outline -> write -> assemble) + map (one writer per chapter) + repair path (build check -> fix)
+support triage     router (classify) + sequence per branch + review cycle (policy check)
+research report    map (one researcher per question) + fan-in (synthesise) + review cycle
+code review bot    sequence (read diff -> propose) + review cycle (second model) + repair path (tests)</pre>
+
+<p>Draw the patterns first, then write the nodes. A node is a function of the state; most are a loop
+with a prompt template, some are plain Python, a few are another graph.</p>
+
+<h2>What a graph costs you</h2>
+
+<p><strong>More code, less surprise.</strong> A graph is more to write than a loop: nodes, edges, state
+keys, a router function. It repays that when the task runs more than a handful of times, when parts can
+run in parallel (three writers take the time of one), when something must happen every time, and when
+you need to know which stage is slow or expensive. For a one-off exploratory task, write a loop.</p>
+
+<h2>Priya sees her graph</h2>
+
+<p><strong>Priya's course builder was never one loop.</strong> She had drawn a researcher and a writer in
+Chapter 3 and noticed one fed the other. Now she writes the shape: outline (a planner), write (a map of
+one writer per chapter), assemble (plain Python), build check (the site's own validator as a node), and a
+fix node on the fail path. Three patterns. Each node gets only the tools it needs: the writers get none,
+the build check gets a subprocess. Her flailing problem from Chapter 8 disappears with the structure,
+because no node has a reason to wander.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Take a task you do often and write it as patterns from the catalogue, in the text form, before you
+know how any node works. Then mark each node: a loop with a prompt, plain code, or another graph. Count
+the nodes that can run in the same wave. If the answer is none, ask whether it needs to be a graph at all.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Is a graph just a workflow engine?</summary><p>The engine part, yes: nodes, edges,
+state, parallel execution. What makes it an agent graph is that nodes are loops, so each step still
+discovers within its scope, and that evaluators and routers decide the path from what the loops produced.</p></details>
+<details><summary>Where does the planner's intelligence go?</summary><p>Into the plan node: a loop that
+produces a list or a plan as structured output, which the map node then executes. The planner decides
+what; the graph decides how and in what order.</p></details>
+<details><summary>What about multi-agent "conversations" where agents talk to each other?</summary><p>They
+are a graph with a cycle between two loops and a router that decides when to stop. Drawing it as a graph
+makes the stopping rule explicit, which is the part those systems usually get wrong.</p></details>
+<details><summary>Should every graph end with a review?</summary><p>Every graph whose output matters
+should end with an evaluator the model cannot skip: a test run, a build, a judge. That is the whole reason
+sign 3 is the strongest.</p></details>
+<details><summary>Can a graph change its own shape at run time?</summary><p>Within limits: routers pick
+among drawn paths, and a map node runs as many branches as the list has. The set of possible paths is
+still fixed and drawn, which is what makes the graph testable.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>A loop discovers; a graph pre-determines. Use a graph when you know the stages, when work is parallel, or when something must happen every time.</li>
+<li>Seven patterns: sequence, fan-out/fan-in, map, router, review cycle, repair path, sub-graph. The industry names are the same shapes.</li>
+<li>If the goal needs information no single node has, add the node that has it.</li>
+<li>Real graphs are two or three patterns joined. Draw the patterns, then write the nodes.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Name the strongest sign that a loop should be a graph.</p>
+<details><summary>Answer</summary><p>Something must happen every time (a review, a test, a policy check). In a graph it is a node on the path to END and the model cannot skip it.</p></details></div>
+<div class="q"><p><strong>2.</strong> Which catalogue pattern is "orchestrator-workers"?</p>
+<details><summary>Answer</summary><p>A planner node producing a list, a map node running one worker per item, and a merge node after the fan-in.</p></details></div>
+<div class="q"><p><strong>3.</strong> Which node does the whiteboard's graph board leave implicit, and why does it matter?</p>
+<details><summary>Answer</summary><p>The edit (merge) node between the fan-in and the review. Six loops that never see each other cannot produce one coherent result; the node that sees all six is what makes the review passable.</p></details></div>
+</section>

@@ -1,0 +1,195 @@
+<!--meta {"title": "Shipping", "part": "Part V · Real world", "minutes": 10, "summary": "Serving loops and graphs over HTTP, the safety checklist for an agent that runs without you, review before publish, the exercises, and the whole book on one whiteboard, cold."} -->
+
+<p class="lede">In this chapter, we will take an agent from a script on your machine to a service other
+programs call, and make it safe to leave running. We will serve loops and graphs over HTTP, go through the
+checklist every unattended agent needs, put a review step between generation and publication, and then
+put the whole book back on one whiteboard. By the end you will be able to ship what you built in Parts II
+to IV and draw the book from memory.</p>
+
+<aside class="note analogy">
+<h4>The analogy: going to press</h4>
+<p>A story is not done when the reporter files it. It is done when it is on the page, past the editor,
+past legal, past the printer's proof, and the press is running on a schedule nobody has to watch. Shipping
+an agent is the same set of steps: an interface other people can use, gates that hold without you, and a
+proof before anything goes out.</p>
+</aside>
+
+<h2>Serving over HTTP</h2>
+
+<p><strong><code>agl serve</code> exposes the loop and every registered graph as a small HTTP service,
+standard library only.</strong></p>
+
+<pre><code class="language-bash">uv run agl serve --port 8790 --graphs examples/course_builder.py,examples/triage.py</code></pre>
+
+<pre><code class="language-json">POST /run    {"task": "...", "tools": ["calc"], "model": "...", "system": "...", "user_id": "..."}
+             -> {"answer", "status", "steps", "usage", "run_id"}
+POST /graph  {"name": "triage", "state": {"message": "..."}}
+             -> the final state: every key the nodes wrote, plus _path, _ms and errors
+GET  /graphs -> [{"name", "nodes", "edges"}]       GET /health -> {"ok": true, "meter": {...}}</code></pre>
+
+<p>A web app, a worker, a mobile backend in any language posts JSON and gets JSON. <code>user_id</code>
+turns on memory for that id. Every call is traced to one file. Bind to localhost and put your application's
+own authentication and rate limits in front; the service is the engine, not the front door. For a
+different language, the engine is also small enough to port: the graph is three hundred lines and the
+parallel wave is a thread pool.</p>
+
+<h2>The checklist for an agent that runs without you</h2>
+
+<pre class="diagram">budgets      Budget per run (dollars and steps) and AGL_BUDGET_USD per process. Two nets, two sizes.
+toolboxes    each node gets only its tools; anything that acts on the world is behind Approval or an allow-list;
+             a loop that reads untrusted text has no acting tools
+compaction   Compact on every long-running loop, so a run cannot grow its own context until it fails
+retries      Node(retries=...) for flaky calls; on_error to a fallback; loops, not plain functions, around models
+checkpoints  every graph longer than a minute runs with checkpoint=; a crash is a rerun away from done
+tracing      Trace on, always; the trace is how you will know what happened at 3 a.m.
+evaluators   every graph ends with a check the model cannot skip: the real tests, the real build, a policy check
+exam         agl eval before every deploy; a row in results.tsv with the commit
+secrets      keys in .env, never in prompts, tasks or memory; the extractor refuses them
+scope        the brief says what the agent may edit and what it may not; the exam and its fixtures are off limits</pre>
+
+<p>Ten lines, and each is a chapter in this book. The ones people skip are compaction and checkpoints,
+because nothing goes wrong in a demo, and tracing, because it feels like overhead until the first night
+you need it.</p>
+
+<h2>Review before publish</h2>
+
+<p><strong>Anything an agent generates for other people to read goes past a reviewer before it goes
+live.</strong> The reviewer can be a person, a judge node with a review protocol as its rubric, or both;
+the point is that generation and publication are separate steps with a gate between them.</p>
+
+<pre class="diagram">generate (the graph) -> review (a judge: fact pass, novice read, style pass) -> a person approves -> publish (copy, build, deploy)</pre>
+
+<p>For Priya's courses, the site has a written review protocol with three passes: facts, a novice read,
+and style. It is written as instructions, which means it is a rubric, which means it is a judge node. The
+generated book waits in a staging folder; a person reads the judge's notes and the chapters, approves,
+and the folder is copied into the live site and rebuilt. The approval is the human in the loop, at the
+only place it is needed: the moment before publication.</p>
+
+<h2>What to measure in production</h2>
+
+<pre class="diagram">per run      status, steps, cost, latency, which evaluator failed and why       from the trace
+per day      pass rate of the policy check; rate of budget and max_steps exits; cost per outcome
+per week     the exam, after every change; a results row; the one graph that costs the most, and why
+per release  the whole exam on the release candidate; no deploy on a crash or a drop beyond the margin</pre>
+
+<p>The trace already carries all of it. A plugin that writes the per-run line to your metrics system is
+ten lines, the same ten as the RetryCounter in <a href="/agents/13-plugins-tracing-and-skills/">Chapter 13</a>.</p>
+
+<h2>The whiteboard, cold</h2>
+
+<p><strong>Everything in this book on one board. Draw it from memory first; then check.</strong></p>
+
+<pre class="diagram">TASKS         measurable (a program prints a number)  |  non-measurable (build the judge first)
+              open-ended (the model picks the try)      |  closed (we pick; the exam)
+              what gets measured gets improved
+
+LOOP          Prompt -> LLM -> Action -> Result -> (LLM ...) -> Evaluate -> Pass -> Final
+                                                                   \-> Fail -> feedback -> LLM
+              the history is the memory of the run and the prompt of the next call; tool results are paid for later
+              exits: pass | fail | max_steps | budget | error            never raises
+
+TOOLS         a typed function; schema from signature + docstring; errors return as text; confined paths;
+              narrow tools steer; untrusted output means no acting tools; Approval on tools that act
+
+EVALUATE      check (free, exact; feedback names fact, target, action) -> judge (a different model, rubric, temp 0)
+              -> all_of (cheap first); rubrics are code; the judge is not the worker
+
+MODELS        one client; prompt tokens dominate; roles: worker, judge, specialist; choose by score, cost, tokens, p50
+              knobs: reasoning effort, cache, structured output, budgets
+
+GRAPH         node = fn(state) -> new keys; edge = "then this may run"; ready = all inputs once + something new
+              wave = ready nodes in parallel on snapshots; disjoint keys or raise; router = label -> jump
+              back edge = jump, not a dependency; max_visits; retries; on_error; checkpoint
+
+PATTERNS      sequence | fan-out/fan-in | map | router | review cycle | repair path | sub-graph
+              if the goal needs information no node has, add the node; design from the output contract backwards
+
+AROUND IT     plugins = objects with hooks (Trace, Console, Budget, Compact, Approval, Skills)
+              memory = recall before (capped) + remember after a pass (async) + two tools; a backend behind six methods
+
+MEASURE       exam: tasks -> checks then judge -> score, cost, tokens, p50 -> a row with the commit
+              improvement loop: a brief with number, scope, gate, protocol, rules, backlog; scope, gate, log
+
+SHIP          serve over HTTP; the ten-line checklist; review before publish; measure per run, day, week, release</pre>
+
+<h2>Exercises</h2>
+
+<pre class="diagram">1.  Draw your own task in Graph.from_text. Which nodes share a wave? Export it to excalidraw.
+2.  Replace the judge in the article graph with a deterministic check. What can you check without a model?
+3.  Add a summarise node in parallel with edit, writing a different key. Then make it write the same key and
+    read the StateCollision.
+4.  Write a plugin that counts evaluator rejections per loop. Run the course builder with it.
+5.  Add skills/terse.md and run the loop example with Skills(only=["terse"]). Compare the answers.
+6.  Write five exam tasks for an agent you have, deterministic checks only. Run them three times.
+7.  Run memory_loop twice, then tell it a fact changed. Open data/memory.sqlite and decide what should happen.
+8.  Build the triage graph with stub nodes and break it in each of Chapter 12's seven ways.
+9.  Price your own agent with the cost calculator. Which model can run after every change?
+10. Build a two-chapter course on a source you trust. Find the first factual error. Write the exam task that would catch it.
+11. Make the course builder write a technical report instead: change the contract, the validator and the rubric only.
+12. Write the brief for your project and run one iteration of the improvement loop by hand, including the row.</pre>
+
+<h2>Open problems</h2>
+
+<p><strong>Real, unsolved in this library, and small enough for a week each.</strong> A judge that
+reads a facts list instead of a source, with proof it catches the same errors. A compaction that
+summarises with a model and keeps provenance, measured against the deterministic cut. A review node built
+from a written review protocol, measured on how many generated chapters it bounces that the content judge
+passed. A quiz widget that reads JSON, so generated courses can carry interactives. A memory fixture with
+a precision number. And drawings that run: reading an excalidraw file of boxes and arrows back into a
+Graph, which is a parser and a naming convention away.</p>
+
+<h2>Priya ships</h2>
+
+<p><strong>Priya's course builder runs as a service next to her site.</strong> A student asks for a topic or
+uploads a PDF; the site posts to <code>/graph</code>; the graph builds into a staging folder with a
+checkpoint; a review judge with the site's protocol writes its notes; Priya approves on her phone; a
+script copies the folder in and rebuilds. Budgets cap every run. The trace of every build is one file she
+can grep. The exam runs before every deploy of the builder itself, and her brief lets an agent try the
+next improvement overnight, inside a scope that cannot touch the exam. She draws the whole thing on one
+board for her students, cold, and it is the board you have just read.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Start <code>agl serve</code> with one of your graphs. Call it from a different language with one JSON
+post. Then read the checklist above against your service, one line at a time, and fix the first line that
+is not true. Then draw the board cold.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Can I use agl with a different model API?</summary><p>Yes. Set <code>AGL_BASE_URL</code>
+to any OpenAI-compatible endpoint and <code>AGL_API_KEY</code> to its key. Where the API reports cost per
+call the client reads it; elsewhere, price from the token counts.</p></details>
+<details><summary>Is one process enough?</summary><p>For a team's internal tools, usually. The service is
+one process with a thread per request and the graph's own parallelism inside. Scale by running more of
+them behind your gateway; the state is per request and the memory is a file you can move to a shared
+database.</p></details>
+<details><summary>How do I add a model?</summary><p>You do not. Any model your API lists is a string in
+<code>AGL_MODEL</code>. <code>agl models</code> prints what is available.</p></details>
+<details><summary>What should I read next?</summary><p>The code, with this book open. Then the writing of
+the people quoted in Chapter 1 and the autoresearch repository, for the loop in its purest form.</p></details>
+<details><summary>Is this production-grade?</summary><p>Production-grade is a property of the measurement
+and the gates, not the code. With the checklist true, an exam before every deploy, and a review before
+every publication, yes. Without them, no agent is.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Serve loops and graphs over HTTP; put your own authentication in front; trace everything to one file.</li>
+<li>The ten-line checklist: budgets, toolboxes, compaction, retries, checkpoints, tracing, evaluators, exam, secrets, scope.</li>
+<li>Generation and publication are separate steps with a review gate between them.</li>
+<li>Measure per run, per day, per week, per release. The trace already has it.</li>
+<li>Draw the board cold. Loops go round; graphs go forward; back edges jump; everything is measured.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Draw the loop and the graph from memory, with the one backward arrow and the one fan-in.</p>
+<details><summary>Answer</summary><p>Loop: Prompt, LLM, Action, Result back to LLM, then Evaluate, Pass to Final, Fail back to LLM. Graph: plan fans out to writers, writers fan in to edit, edit to review, review routes pass to END and fail back to edit.</p></details></div>
+<div class="q"><p><strong>2.</strong> Which three items on the checklist do people skip, and why does each matter?</p>
+<details><summary>Answer</summary><p>Compaction (a run cannot grow its own context until it fails), checkpoints (a crash is a rerun away from done), and tracing (the only way to know what happened when nobody was watching).</p></details></div>
+<div class="q"><p><strong>3.</strong> Where is the human in Priya's shipped system, and why there?</p>
+<details><summary>Answer</summary><p>At the approval between the review judge and publication. Humans gate actions and sign off outputs; that is the only place a person is needed and the one place a mistake would reach students.</p></details></div>
+</section>

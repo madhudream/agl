@@ -1,0 +1,194 @@
+<!--meta {"title": "Memory", "part": "Part IV · Around the loop", "minutes": 10, "summary": "How a loop remembers across runs: a memory framework behind a six-method interface, recall before and remember after, the two tools, scoping by user, what not to store, and how to test memory on its own."} -->
+
+<p class="lede">In this chapter, we will learn how a loop remembers across runs. Memory frameworks (mem0
+is a well-known one) do the hard parts: extract facts from a conversation, keep them with dates, find
+them again. agl puts any such framework behind a six-method interface and ships a small one, mem lib. We
+will see the three doors memory enters by, what the framework decides and what the model decides, the
+rules about what not to store, and how to test memory without confusing it with the rest of the agent. By
+the end you will add memory to any loop in two lines and know what to measure.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the archive</h4>
+<p>A reporter does not remember every story the paper ever ran. The archive does. Before a new piece, she
+asks the archivist for the clippings on this subject and gets a short, dated file. After the piece runs,
+the archivist clips it, dates it and files it, deciding what is worth keeping. The reporter can also
+walk to the archive herself and ask a question. Three doors into one room: that is the memory plugin.</p>
+</aside>
+
+<h2>Why memory is a plugin</h2>
+
+<p><strong>Memory touches two moments of the loop, before the first call and after the last, and both
+are hooks.</strong> Before: the task is searched and a block of dated facts is appended to the system
+prompt. After: the task and the answer are handed to the framework to extract what is worth keeping. The
+loop does not know memory exists, which is why the loop is still one page.</p>
+
+<pre><code class="language-python">from agl.memory import Memory
+
+mem = Memory(user_id="priya:course-app")
+loop = Loop(llm, tools=Toolbox(*mem.tools), plugins=default_plugins() + Plugins(mem))</code></pre>
+
+<p>Three things happen in those two lines. <code>Memory</code> is a plugin (it has
+<code>system_prompt</code> and <code>on_run_end</code>). <code>mem.tools</code> are two ordinary tools,
+<code>recall</code> and <code>remember</code>, the model may call. And <code>user_id</code> is the wall:
+every fact is stored under it and every search is limited to it. Use "user:project" to keep one person's
+projects apart.</p>
+
+<h2>The interface</h2>
+
+<p><strong>A memory framework, to agl, is six methods.</strong></p>
+
+<pre><code class="language-python">class MemoryBackend(Protocol):
+    def recall(self, query, user_id, budget_tokens) -> tuple[str, int]: ...   # a dated fact block, and how many facts
+    def remember(self, messages, user_id, session_id) -> None: ...            # extract and store; may run in the background
+    def add_fact(self, fact, user_id) -> str: ...                             # store one sentence as given
+    def search(self, query, user_id, k) -> list[dict]: ...                    # [{"text", "date", "kind"}]
+    def facts(self, user_id) -> list[dict]: ...                               # everything current for the user
+    def flush(self) -> None: ...                                              # wait for background writes</code></pre>
+
+<p>mem lib, the shipped backend, is one SQLite file: facts as short dated sentences, a full-text index
+for keyword search, one model call per <code>remember</code> to extract facts from a conversation, and a
+<code>recall</code> that ranks by match and packs facts under a token budget. It is small on purpose; it
+is enough to run a real assistant and to teach the shape. A framework with embeddings, deduplication
+across phrasings, fact versioning and graph links fits the same six methods in about thirty lines of
+adapter, and is passed as <code>backend=</code>.</p>
+
+<h2>Recall before, remember after</h2>
+
+<pre><code class="language-python">def system_prompt(self, run):
+    block, n = self.backend.recall(run.task, self.user_id, self.budget_tokens)   # at most 1,500 tokens
+    if not n: return None
+    return ("# Memory\nKnown facts about this user and their work, each with the date it was true. "
+            "Use them when relevant; do not repeat them back unprompted.\n" + block)
+
+def on_run_end(self, run, answer):
+    if run.status != "pass" or not answer: return
+    self.backend.remember([{"role": "user", "content": run.task}, {"role": "assistant", "content": answer}],
+                          self.user_id, run.id)</code></pre>
+
+<p>Two decisions worth noticing. Recall is synchronous and capped: at most a budget of tokens of facts
+goes into the prompt, chosen by relevance to the task, so memory can never crowd out the task. Remember is
+asynchronous and conditional: only a run that passed is remembered, because a failed run's answer is, by
+the evaluator's judgment, wrong; and the extraction call happens on a background thread so the loop
+returns at once. Recall sync, remember async.</p>
+
+<h2>Two runs</h2>
+
+<pre class="chat">run 1
+user:       I'm building an interactive course app in Python; my students are in Kansas City
+            and I prefer plain-English explanations with no em dashes. Confirm what you'll remember.
+assistant:  → remember(fact="Priya is building an interactive course app in Python.")
+            → remember(fact="Priya's students are in Kansas City.")
+assistant:  Noted: a Python course app, students in Kansas City, plain English, no em dashes.
+
+run 2, a new process, nothing in the prompt but the question
+user:       Remind me: where are my students and what writing style do I prefer? One sentence.
+assistant:  Your students are in Kansas City, and you prefer plain English without em dashes.</pre>
+
+<p>Between the runs, the extractor turned the first conversation into dated facts. Before the second
+run, the plugin searched them with the question and put the matches into the system prompt:</p>
+
+<pre class="out">(2026-10-01) Priya is building an interactive course app in Python, with students in Kansas City.
+(2026-10-01) Priya prefers plain-English explanations without em dashes.</pre>
+
+<p>The second run never saw the first conversation. It saw a short, dated, relevant block. That is the
+difference between memory and a long chat history: the history grows for ever and is resent on every
+call; the block is small, chosen, and dated.</p>
+
+<h2>Three doors</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Door</th><th>Who decides</th><th>When</th><th>Cost</th></tr></thead>
+<tbody>
+<tr><td>Recall into the system prompt</td><td>the backend, by relevance to the task</td><td>before the first call</td><td>a search; one embedding call in frameworks that embed</td></tr>
+<tr><td>Remember after the run</td><td>the backend's extractor</td><td>after a pass, in the background</td><td>one model call</td></tr>
+<tr><td><code>recall()</code> and <code>remember()</code> tools</td><td>the model</td><td>whenever it chooses</td><td>one tool call each</td></tr>
+</tbody></table></div>
+
+<p>The first two doors matter most, and the model is in charge of neither. The extractor decides what is
+worth keeping, with rules. The search decides what is worth recalling. The tools exist for the cases
+where the model knows better ("remember that the deadline moved"), and they are logged like any tool.</p>
+
+<h2>Three kinds of memory</h2>
+
+<pre class="diagram">semantic     facts about the user and the world      "Priya's students are in Kansas City"      recall before the run
+episodic     what happened, when                      "on 1 Oct we built a 3-chapter course"     recall before; expires
+procedural   how to do things here                    "no em dashes; define terms on first use"  skills files (Chapter 13)</pre>
+
+<p>Frameworks store the first two with dates and let the second fade. The third is better kept as skills:
+versioned pages the team owns, not sentences a model extracted. If you find the extractor storing rules
+("the user wants short answers"), move them into a skill file and tell the extractor to skip them.</p>
+
+<h2>What not to store</h2>
+
+<pre class="diagram">secrets          passwords, keys, tokens, card numbers: refuse, whatever the user says
+tool output      text that came back from a tool is not a fact about the user; never extract from it
+"forget this"    honour it: do not store, and offer to delete
+one-off requests "what time is it in Tokyo": useless tomorrow
+other users      every query carries a user id; a backend that could leak across ids is not a backend</pre>
+
+<p>The second rule is the one people miss. A loop that reads a web page and remembers "the user's
+address is ..." from it has been injected through memory, and the fact will come back in every later
+prompt. Extract only from the user's and the assistant's turns.</p>
+
+<h2>Testing memory on its own</h2>
+
+<p><strong>Measure memory separately from the agent, or you cannot tell which one improved.</strong>
+Build a fixture: twenty facts told across a few conversations, twenty questions whose answers are those
+facts, some asked in different words. Score recall: how many questions put the right fact into the block,
+and how many tokens the block cost. Then tune the budget, the extractor model and the search against that
+number. Keep memory out of the agent's exam from <a href="/agents/15-evals-and-the-improvement-loop/">Chapter 15</a>:
+a task that passes because last week's run stored the answer is not a test of the agent.</p>
+
+<h2>Priya's memory</h2>
+
+<p><strong>Priya keys memory by student and course.</strong> A student who asked for a course on graph
+engineering last week and said they already know Python gets, this week, a system prompt block that says
+so, and the outline node skips the Python primer. Nothing in the graph changed: one plugin on the outline
+loop, one user id per student. She also moves "define every term on first use", which the extractor had
+stored as a fact, into her chapter skill, where it belongs.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Run <code>uv run python examples/memory_loop.py</code> twice. Open <code>data/memory.sqlite</code> with
+any SQLite browser and read the facts table. Tell the loop something new that contradicts an old fact
+("my students moved to Austin") and run again: does the recall block show both? Decide what the backend
+should do about contradictions, and write it as a test before you change anything.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why not keep the whole chat history?</summary><p>It is resent on every call and grows
+without bound, and most of it is noise. A recall block is small, relevant and dated.</p></details>
+<details><summary>Why remember only runs that passed?</summary><p>A failed run's answer is wrong by the
+evaluator's judgment; storing it teaches the memory the wrong thing. The task itself can still be useful
+context; some teams store the task on any status.</p></details>
+<details><summary>Does the memory framework need its own model?</summary><p>It needs a model for
+extraction and, in frameworks that embed, an embedding model. mem lib uses the same client and worker
+model as the loop; a bigger framework is configured on its own.</p></details>
+<details><summary>How does mem0 or another framework plug in?</summary><p>Write a class with the six
+methods that calls the framework's add and search, and pass it as <code>backend=</code>. The plugin, the
+tools and the loop do not change.</p></details>
+<details><summary>Should the exam use memory?</summary><p>No. Measure memory on its own fixture, and run
+the agent's exam without it.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Memory enters a loop at two hooks: recall into the system prompt before, remember after a pass. Recall sync, remember async.</li>
+<li>A memory framework is six methods behind <code>MemoryBackend</code>; mem lib is the shipped one.</li>
+<li>The extractor decides what to keep, the search what to recall; the model has tools for the rest.</li>
+<li>Never extract from tool output; refuse secrets; keep rules in skills, not facts.</li>
+<li>Scope every fact to a user id, and test memory on its own fixture.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Which two hooks does the Memory plugin implement, and what does each do?</p>
+<details><summary>Answer</summary><p><code>system_prompt</code> searches memory for the task and appends a dated fact block under a token budget; <code>on_run_end</code> hands the task and answer to the backend for extraction, in the background, when the run passed.</p></details></div>
+<div class="q"><p><strong>2.</strong> Why must the extractor never read tool output?</p>
+<details><summary>Answer</summary><p>Tool output is text written by someone else; a fact extracted from it is an injection that will return in every later prompt. Extract only from the user's and assistant's turns.</p></details></div>
+<div class="q"><p><strong>3.</strong> Where should "define every term on first use" live, and why?</p>
+<details><summary>Answer</summary><p>In a skill file: it is a rule about how to work (procedural memory), owned and versioned by the team, not a fact about a user for an extractor to store.</p></details></div>
+</section>

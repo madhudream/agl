@@ -1,0 +1,143 @@
+<!--meta {"title": "Making an interactive", "part": "The guide", "minutes": 10, "summary": "The 25-line pattern behind every slider on this shelf: state, controls, a draw function, and the arithmetic shown in the open."} -->
+
+<p class="lede">In this chapter, we will learn how to write an interactive. We will read the coffee
+calculator from Chapter 1 line by line, and then list the parts the engine gives you: sliders, buttons,
+tiles, tables and charts. If you can write a function in JavaScript, you can write one of these.</p>
+
+<aside class="note analogy">
+<h4>The analogy: a kitchen scale</h4>
+<p>A kitchen scale has one input, the thing you put on it, and one output, the number. It answers at once,
+and it never hides how it got the number. A good interactive is a kitchen scale for one idea. If yours
+needs a manual, it is doing too much.</p>
+</aside>
+
+<h2>The pattern</h2>
+
+<p><strong>An interactive is a function that receives an empty box and fills it.</strong> It keeps its
+numbers in one object, draws once, and draws again whenever a control moves.</p>
+
+<pre class="diagram">state  --&gt;  controls change the state  --&gt;  draw() reads the state  --&gt;  tiles, arithmetic, chart
+  ^                                                                              |
+  +------------------------  the reader moves a slider  -------------------------+</pre>
+
+<h2>The coffee calculator, line by line</h2>
+
+<pre><code class="language-python">MB.widget("coffee-cost", function (el, ui) {
+    var st = {};                                            # 1. the state
+    var body = ui.frame("What does the coffee habit cost?", # 2. the frame: title and subtitle
+                        "Move a slider. Every number below is re-derived.");
+    var out = MB.h("div");                                  # 3. where results are drawn
+
+    body.appendChild(ui.controls([                          # 4. the sliders
+      { key: "cups",  label: "Cups per day",  min: 0,   max: 8,  value: 2 },
+      { key: "price", label: "Price per cup", min: 0.5, max: 8,  step: 0.1, value: 3.5,
+        fmt: function (v) { return "$" + v.toFixed(2); } },
+      { key: "years", label: "Years",         min: 1,   max: 40, value: 10 }
+    ], st, draw));
+    body.appendChild(out);
+
+    function draw() {                                       # 5. state in, page out
+      var day = st.cups * st.price, year = day * 365, total = year * st.years;
+      out.textContent = "";
+      out.appendChild(ui.tiles([
+        { label: "Per day",  value: MB.fmt.usd(day) },
+        { label: "Per year", value: MB.fmt.usd(year) },
+        { label: "Over " + st.years + " years", value: MB.fmt.usd(total), kind: "hot" }]));
+      out.appendChild(ui.calc([                             # 6. the arithmetic, in the open
+        "per day    " + st.cups + " x $" + st.price.toFixed(2) + " = " + MB.fmt.usd(day),
+        "per year   " + MB.fmt.usd(day) + " x 365 = " + MB.fmt.usd(year),
+        "total      " + MB.fmt.usd(year) + " x " + st.years + " = " + MB.fmt.usd(total)]));
+      ui.foot("One sentence that tells the reader what to notice.");   # 7. the lesson
+    }
+    draw();
+});</code></pre>
+
+<p>(The block is coloured as Python only so that the comments stand out. The file is JavaScript.)</p>
+
+<p>Save it in <code>books/your-book/assets/widgets-your-book.js</code>, add the file name to
+<code>scripts</code> in <code>book.json</code>, and place it in a chapter:</p>
+
+<pre><code class="language-bash">&lt;div class="widget" data-widget="coffee-cost"&gt;&lt;/div&gt;</code></pre>
+
+<div class="widget" data-widget="coffee-cost"></div>
+
+<h2>What the engine gives you</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Call</th><th>What you get</th></tr></thead>
+<tbody>
+<tr><td><code>ui.frame(title, subtitle)</code></td><td>The card with its header. Returns the body to fill.</td></tr>
+<tr><td><code>ui.controls(specs, state, onChange)</code></td><td>Sliders. Add <code>log: true</code> for ranges such as 1,000 to 100,000,000.</td></tr>
+<tr><td><code>ui.segmented(options, value, onPick)</code></td><td>A row of buttons where one is chosen.</td></tr>
+<tr><td><code>ui.tiles([{label, value, note, kind}])</code></td><td>Big numbers. <code>kind</code> is <code>hot</code>, <code>good</code> or <code>bad</code>.</td></tr>
+<tr><td><code>ui.calc([lines])</code></td><td>The arithmetic block.</td></tr>
+<tr><td><code>ui.table(columns, rows, rowClass)</code></td><td>A table that scrolls sideways on a phone.</td></tr>
+<tr><td><code>ui.foot(html)</code></td><td>The line under the card: what to notice.</td></tr>
+<tr><td><code>MB.lineChart({...})</code></td><td>Lines over one axis, with legend, end labels, markers and hover.</td></tr>
+<tr><td><code>MB.barList({...})</code></td><td>Horizontal bars with the value at the tip.</td></tr>
+<tr><td><code>MB.scatter({...})</code></td><td>Points in up to three groups, each with a tooltip.</td></tr>
+<tr><td><code>MB.fmt.int / usd / compact / bytes / ms / pct</code></td><td>Numbers as people write them: 1,095,000 and $0.045 and 664 GB.</td></tr>
+<tr><td><code>MB.h(tag, attributes, children)</code></td><td>Make any element, for everything else.</td></tr>
+</tbody></table></div>
+
+<h2>Seven rules for a good interactive</h2>
+
+<ol>
+<li><strong>One idea.</strong> If the title needs the word "and", make two.</li>
+<li><strong>Start at the book's numbers.</strong> The default position of every slider is the example in
+the text, so the first thing the reader sees matches what they just read.</li>
+<li><strong>Show the arithmetic.</strong> A number without its steps is a magic trick, and a magic trick
+teaches nothing.</li>
+<li><strong>Ask for a prediction.</strong> The sentence before the interactive asks the reader to guess.</li>
+<li><strong>Say what is real.</strong> Mark each number as measured, derived or made up for
+illustration.</li>
+<li><strong>Survive the extremes.</strong> Drag every slider to both ends. No "NaN", no "Infinity", no
+broken layout.</li>
+<li><strong>Do not depend on it.</strong> The text must make sense to a reader whose browser could not run
+the script.</li>
+</ol>
+
+<aside class="note tip"><h4>Tip</h4><p>Colours come from the stylesheet. Use <code>var(--s1)</code> to
+<code>var(--s4)</code> for data and <code>var(--ink-2)</code> for text, and your chart will be readable in
+dark mode without any extra work.</p></aside>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Copy the coffee calculator. Change it into a calculator for something from your own subject: litres of
+water for a garden bed, hours to read a book, the cost of running a server. Keep it under 30 lines.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Can I use React, D3 or another library?</summary>
+<p>The engine needs none, and every book on the shelf works without one. If your interactive truly needs a
+library, load it inside your own script. Remember rule 7: the page must still read well if it fails to
+load.</p></details>
+<details><summary>Where do I put large data?</summary>
+<p>In a separate file in <code>assets</code>, listed in <code>scripts</code> before the widget files. Attach
+it to <code>window.MB</code>, for example <code>MB.myData = [...]</code>.</p></details>
+<details><summary>Can an interactive call a server or an AI model?</summary>
+<p>The books here run entirely in the browser, so they cost nothing to host and they keep working for
+years. The memory book's simulator replaces the AI model with simple rules and says so. We recommend the
+same honesty.</p></details>
+<details><summary>How do I test it?</summary>
+<p><code>node tools/smoke.mjs</code> opens every page in a real browser, drags every slider to both ends,
+presses every button and fails on any error or any "NaN" on screen.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>State, controls, <code>draw()</code>. Draw once, and again on every change.</li>
+<li>Always print the arithmetic, and end with one line that says what to notice.</li>
+<li>Sliders start at the numbers used in the text.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Your interactive shows "NaN" when a slider is at zero. What is the
+likely cause, and which rule did it break?</p>
+<details><summary>Answer</summary><p>A division by that value, or by something derived from it. It breaks
+rule 6. Guard the division, or give the slider a smallest value above zero.</p></details></div>
+</section>

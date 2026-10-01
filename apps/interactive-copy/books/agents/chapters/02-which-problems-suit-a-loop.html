@@ -1,0 +1,162 @@
+<!--meta {"title": "Which problems suit a loop", "part": "Part I · Foundations", "minutes": 9, "summary": "The first question to ask before building any agent: can a program print one number after every attempt? Measurable versus non-measurable, open-ended versus closed, and how to make a vague task measurable enough to loop on."} -->
+
+<p class="lede">In this chapter, we will learn the one question that decides whether a task can be given
+to an autonomous loop at all: can it be measured? We will sort tasks into measurable and non-measurable,
+split the measurable ones into open-ended and closed, and see why the sentence "what gets measured gets
+improved" is the engine under everything that follows. By the end you will be able to look at your own
+work and say which parts a loop could own tonight, and what you must build first for the rest.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the sports desk and the opinion page</h4>
+<p>The sports desk has it easy. There is a score. A story that gets the score wrong is wrong, and a
+program can check it. The opinion page has no score. Whether a column is good is decided by an editor
+reading it. Both pages get published every day, but they are run differently. The sports desk can be
+automated end to end. The opinion page needs a judge before anything else.</p>
+</aside>
+
+<h2>Measurable and non-measurable</h2>
+
+<p><strong>A task is measurable when a program can print one number after every attempt, and a better
+attempt moves the number the right way.</strong> The whiteboard's second board lists the classic
+examples of each.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Measurable</th><th>The number</th><th>Non-measurable</th><th>Why there is no number</th></tr></thead>
+<tbody>
+<tr><td>Reduce the web page load time</td><td>milliseconds to first paint</td><td>Implement dark mode</td><td>done or not done, judged by eye</td></tr>
+<tr><td>Reduce the app startup time</td><td>milliseconds to first screen</td><td>Integrate a payment gateway</td><td>works or fails; no run-to-run gradient</td></tr>
+<tr><td>Reduce the latency</td><td>p50 and p95 in milliseconds</td><td>Make onboarding friendlier</td><td>taste, until you define a proxy</td></tr>
+<tr><td>Reduce the processing time</td><td>seconds per batch</td><td>Write better documentation</td><td>better for whom, by what test</td></tr>
+<tr><td>Reduce the memory footprint</td><td>megabytes at peak</td><td>Refactor for clarity</td><td>clarity has no unit</td></tr>
+</tbody></table></div>
+
+<p>The left column shares a shape: a program you can run, a number it prints, and a direction that is
+better. That shape makes an autonomous loop possible. The loop can try a change, run the program, read
+the number, and decide on its own whether to keep the change. Nobody has to be awake.</p>
+
+<p>The right column is not worse work. It is work that needs a judge. Somebody, or some model with a
+rubric, has to look at the result and say pass or fail. Until that judge exists, a loop around the task
+has nothing to loop on. Building the judge is the first job, not the last.</p>
+
+<h2>What gets measured gets improved</h2>
+
+<p><strong>A loop can only improve what it can see, and a number is the only thing a program can
+see.</strong> The sentence on the third board sounds like a management slogan. Here it is a precise
+claim about machinery.</p>
+
+<pre class="diagram">by hand    a person profiles, guesses, edits, reloads, squints, repeats      perhaps 5 tries a day
+by loop    a program edits, runs the timer, reads the number, keeps or reverts  perhaps 12 tries an hour</pre>
+
+<p>The second row is only possible because the timer prints a number. Take the number away and the loop
+cannot tell a good edit from a bad one. Put it back and the loop runs all night. The projects on the
+whiteboard's last board, ruff, zstd, mem0, ripgrep, all have a program that prints a number (a speed
+benchmark, a compression ratio, a memory benchmark score). That is exactly why they appear on a board
+about loops: each could be the target of a loop tonight.</p>
+
+<h2>Open-ended and closed</h2>
+
+<p><strong>Among measurable tasks, an open-ended task lets the model decide what to try; a closed task
+tells it.</strong></p>
+
+<pre class="diagram">measurable
+  |-- open-ended    "get the lowest validation loss in 5 minutes; anything in train.py is fair game"
+  |                 the model proposes the experiment; the number judges it
+  |
+  +-- closed        "try these three learning rates and report which is best"
+                    we propose the experiments; the number ranks them</pre>
+
+<p>karpathy/autoresearch, also on the last board, is the purest open-ended example: one file the agent
+may edit, one number to lower, a five-minute budget per try, and an instruction to never stop. An exam
+of fixed tasks with expected answers is closed. Both are loops; they differ in who holds the pen.</p>
+
+<p>Open-ended loops find things you did not think of. Closed loops are cheaper and easier to trust. A
+grown-up project runs both: a closed exam to catch regressions, an open-ended loop to look for the next
+improvement, with the closed exam as the gate the open-ended loop has to pass. <a href="/agents/15-evals-and-the-improvement-loop/">Chapter 15</a>
+builds both for your project.</p>
+
+<h2>Making a vague task measurable</h2>
+
+<p><strong>You do not need a perfect number. You need a number that moves the right way more often than
+not.</strong> Most non-measurable tasks hide a measurable proxy.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Non-measurable task</th><th>A proxy a program can print</th><th>What it misses</th></tr></thead>
+<tbody>
+<tr><td>Write better documentation</td><td>a quiz: can a model answer 20 questions from the docs alone?</td><td>tone, structure</td></tr>
+<tr><td>Make onboarding friendlier</td><td>drop-off rate at each step, from the logs</td><td>why people leave</td></tr>
+<tr><td>Write a good chapter</td><td>a checklist: required sections present, word range, house style; then a rubric judged by a second model</td><td>whether it is actually interesting</td></tr>
+<tr><td>Implement dark mode</td><td>a screenshot diff against a reference, pixel distance</td><td>whether it looks nice</td></tr>
+<tr><td>Answer support tickets well</td><td>a policy check (no promises, no secrets) plus a sample judged by a rubric</td><td>whether the customer felt heard</td></tr>
+</tbody></table></div>
+
+<p>Two patterns recur in that table and in the whole book. First, a checklist a program can run, which
+costs nothing and catches structure. Second, a rubric judged by a second model, which costs a model call
+and catches content. The checklist runs first, so the judge only reads what passed. Cheap checks first,
+expensive judges last.</p>
+
+<h2>Sort ten tasks</h2>
+
+<div class="widget" data-widget="task-sorter"></div>
+
+<h2>Priya's list</h2>
+
+<p><strong>Priya's course app has both kinds of task, and the split tells her what to build first.</strong></p>
+
+<pre class="diagram">measurable                                      non-measurable (needs a judge)
+  every chapter passes the site's build check     chapters are interesting to read
+  a course build costs under a set amount         the analogy fits the topic
+  a course builds in under five minutes           the explanations are correct
+  every exam task passes                          students feel it was worth their time</pre>
+
+<p>The left column she can hand to a loop tonight. For the right column she needs, in order: a rubric, a
+judge model that is not the writer model, and a way to check that the judge agrees with her. She builds
+those in Part II. The lesson of the board is the order: measure first, then automate.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>The whiteboard sets an exercise and we repeat it: identify five to ten tasks in your own project or
+domain and categorise them as measurable or non-measurable. For each non-measurable one, write the
+cheapest proxy you can think of, and what it would miss. Keep the list. In Chapter 15 you will turn the
+measurable ones into exam tasks.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Is a model's score on a rubric a measurement?</summary><p>It is a measurement of what
+the judge thinks, which is useful and noisy. Treat it as a number with error bars: judge scores move by a
+few points between identical runs, so demand a margin before calling a change an improvement.</p></details>
+<details><summary>What if the number can be gamed?</summary><p>Then it will be. An open-ended loop will
+find the shortcut if one exists. The fix is in the exam, not the loop: pin the test data, keep the scoring
+code read-only, never let the loop edit the task it is scored on.</p></details>
+<details><summary>Can a task be measurable but not worth looping on?</summary><p>Yes. If one try costs an
+hour of compute, a loop runs twelve tries a day and a person might do better. The method shines when a
+try is cheap: a minute of training, a second of linting, a cent of model calls.</p></details>
+<details><summary>Why is "what gets measured gets improved" on a board about agents?</summary><p>Because
+an agent loop is the first machine that can act on a measurement without a person in between. The slogan
+used to be about management attention. Now it is about a program's attention, and the program does not
+get tired.</p></details>
+<details><summary>Open-ended loops sound dangerous. Are they?</summary><p>They are only as dangerous as
+what they can touch. autoresearch lets the agent edit one file and forbids installing packages. Scope is
+the safety mechanism, and it is written down in the brief the loop reads.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Measurable means a program prints one number after every attempt and better moves it the right way.</li>
+<li>Non-measurable tasks need a judge before a loop can touch them. Build the judge first.</li>
+<li>Open-ended: the model picks the experiment. Closed: we do. Run the closed exam as the gate for the open-ended loop.</li>
+<li>Checklist first, judge last. The pattern repeats through the whole book.</li>
+<li>Measure first, then automate.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Is "reduce the memory footprint" measurable? Why?</p>
+<details><summary>Answer</summary><p>Yes. A program can report peak megabytes after each attempt, and lower is better, so a loop can keep or discard on its own.</p></details></div>
+<div class="q"><p><strong>2.</strong> What is the difference between an open-ended and a closed measurable task?</p>
+<details><summary>Answer</summary><p>In an open-ended task the model decides what to try and the number judges it; in a closed task we specify the experiments and the number ranks them.</p></details></div>
+<div class="q"><p><strong>3.</strong> How do you make "write a good chapter" measurable enough to loop on?</p>
+<details><summary>Answer</summary><p>A deterministic checklist (required sections, word range, house style) that runs first and costs nothing, then a rubric judged by a different model that reads only the chapters the checklist passed.</p></details></div>
+</section>

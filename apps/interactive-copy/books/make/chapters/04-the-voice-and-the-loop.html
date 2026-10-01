@@ -1,0 +1,119 @@
+<!--meta {"title": "The voice, and the loop that improves it", "part": "The guide", "minutes": 8, "summary": "How to write so that anyone can follow, and how to find out where they still cannot."} -->
+
+<p class="lede">In this chapter, we will learn the rules of voice that every book on this shelf follows,
+and the loop we use to improve a book after the first draft. The rules are short. The loop is what makes
+the difference.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the rehearsal</h4>
+<p>A play is not finished when the script is written. It is finished after rehearsals, where someone
+watches from the seats and says "I did not understand why she left the room". A book needs the same
+seats. The review loop puts a reader in them before the real readers arrive.</p>
+</aside>
+
+<h2>Ten rules of voice</h2>
+
+<ol>
+<li><strong>Plain words, short sentences.</strong> One idea in each paragraph.</li>
+<li><strong>Explain every term the first time.</strong> "A token is a small piece of text, roughly three
+quarters of a word."</li>
+<li><strong>Begin with the promise.</strong> "In this chapter, we will learn ..."</li>
+<li><strong>Definition first.</strong> One bold sentence, then the explanation.</li>
+<li><strong>One analogy for the whole book.</strong> The memory book has a card box, a secretary and a
+librarian. A chapter may add one small picture of its own.</li>
+<li><strong>One recurring character.</strong> The reader meets Maya in chapter 1 and still knows her in
+chapter 25.</li>
+<li><strong>Derive every number.</strong> Step by step, in a calculation block.</li>
+<li><strong>Say "we".</strong> The writer and the reader work it out together.</li>
+<li><strong>No hype.</strong> If something is good, the number will say so.</li>
+<li><strong>Tell the failures.</strong> What did not work is as useful as what did.</li>
+</ol>
+
+<h2>The skeleton of a chapter</h2>
+
+<pre class="diagram">the promise              "In this chapter, we will learn ..."
+the analogy              one picture from everyday life
+the sections             definition, picture, numbers, interactive
+try it yourself          an experiment with real output
+common questions         what a reader still asks
+carry this               three to five lines
+check yourself           questions with folded answers</pre>
+
+<h2>The improvement loop</h2>
+
+<p><strong>A review round is one pass in which a fresh reader checks the facts, reads as a beginner, and
+fixes what they find.</strong> We count what each round finds. When the count stops falling, the book is
+ready.</p>
+
+<pre class="diagram">draft  --&gt;  review round  --&gt;  count: factual errors, unanswered questions, style  --&gt;  fix
+              ^                                                                         |
+              +------------------  a NEW reviewer, who has not seen the book  ----------+</pre>
+
+<p>The reviewer makes three passes over each chapter.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Pass</th><th>The reviewer asks</th></tr></thead>
+<tbody>
+<tr><td>Fact check</td><td>Does every number match its source? Is every calculation right when I redo it? Does the text describe the interactive as it really behaves?</td></tr>
+<tr><td>Beginner's read</td><td>Which term was used before it was explained? Where did a step jump? Which "why" was left open?</td></tr>
+<tr><td>Style</td><td>Is a part of the skeleton missing? Is a number given without its arithmetic?</td></tr>
+</tbody></table></div>
+
+<aside class="note lab">
+<h4>From the lab</h4>
+<p>The first review round of the memory book covered 25 chapters. In the first five chapters alone it
+found 11 factual errors and 19 questions a beginner would still have. One calculation said "28 x 3 = about
+83". One table said the read path uses no model, although the assistant's own model is on it. None of
+these was visible to the writer.</p>
+</aside>
+
+<h3>Why a new reviewer each round?</h3>
+
+<p>A reviewer who has read the book once already knows what the writer meant. They can no longer see the
+gap. The same is true of the writer. A person who reads the chapter for the first time is the only honest
+test.</p>
+
+<h3>Who can review?</h3>
+
+<p>A friend outside your field is best. An AI assistant works well too, with clear instructions. The file
+<code>tools/REVIEW.md</code> holds the instructions we use. Give the reviewer your sources, so that they
+can check facts and not only style.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Take one chapter you wrote. Give it to someone who does not know the subject. Ask for only one thing:
+"Underline every place where you had to read a sentence twice." Count the underlines. Fix them. Give the
+chapter to a different person.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>How many rounds are enough?</summary>
+<p>Stop when a round finds no factual errors and fewer than one open question per chapter. For the memory
+book we log every round in <code>review-log.tsv</code>.</p></details>
+<details><summary>Will plain language not bore an expert?</summary>
+<p>Experts skim, and plain text is the easiest to skim. What bores an expert is a claim without a number.
+Give them the measurements and the failures.</p></details>
+<details><summary>What if my subject has no numbers?</summary>
+<p>Then the interactive is a sorting task, a step-through or a small simulation. The memory book has all
+three: sorting sentences into kinds of memory, stepping through one request, and a simulator where you
+play a part.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Promise, analogy, definition first, numbers derived, failures told.</li>
+<li>A review round counts three things: factual errors, unanswered questions, style.</li>
+<li>Each round needs a reviewer who has not seen the book.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Round one found 40 problems and round two found 38. What does that
+tell you?</p>
+<details><summary>Answer</summary><p>Either the fixes were not applied, or each fix introduced a new
+problem, or the chapters are too dense for the reader they are written for. Look at what kind of problem
+repeats before you start round three.</p></details></div>
+</section>

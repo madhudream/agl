@@ -1,0 +1,181 @@
+<!--meta {"title": "Graph problems and fixes", "part": "Part III · Building graphs", "minutes": 11, "summary": "The seven ways a graph goes wrong, each with its symptom, cause and fix: no merge node, a literal judge, a graph that stalls, a cycle that never ends, two nodes on one key, a node that dies, and judges that cost more than workers."} -->
+
+<p class="lede">In this chapter, we will learn to diagnose a graph from its path and its node timings, as
+<a href="/agents/08-loop-problems-and-fixes/">Chapter 8</a> did for loops from their traces. Seven
+problems cover nearly every bad graph run. For each: the symptom as the console or the trace shows it,
+the cause, and the fix in agl. By the end you will read a path like <code>plan, write, review, write,
+review, write, review</code> and know what is wrong before you read a single model output.</p>
+
+<aside class="note analogy">
+<h4>The analogy: when the desk goes wrong</h4>
+<p>The desk's failures are different from the reporter's. Three reporters file good copy and the paper
+is still a mess, because nobody wrote the page. Legal bounces the same piece three times for a rule nobody
+meant. A section never goes to print because it is waiting for a sign-off that cannot happen until it
+prints. Two reporters file into the same slot. These are failures of the plan, not of the people, and
+they are fixed by changing the plan.</p>
+</aside>
+
+<h2>How to read a graph run</h2>
+
+<p><strong>Three things tell you almost everything: the path, the per-node milliseconds, and the
+errors dictionary.</strong> The path is in <code>state["_path"]</code> and on the console's last line.
+A path that repeats a pair of nodes is a cycle that is not converging. A path that ends early is a
+stall. Per-node milliseconds show where the wall clock goes; errors show what died.</p>
+
+<h2>1. Good parts, bad whole: no merge node</h2>
+
+<pre class="diagram">symptom   every writer passes its own check; the reviewer fails the combined output every time, with the
+          same complaint ("not one coherent piece", "repeats itself", "contradicts section 2")
+cause     the goal needs information no single node has; the nodes that have it never share a wave or a prompt
+fix       add the node that has it all: an editor between the fan-in and the review, fed every draft</pre>
+
+<p>This is the most common graph bug and no prompt fixes it. Three writers who never see each other
+cannot produce one article, however good each paragraph is. The feedback on a fail should go to the
+editor, with the previous version and the complaint, not back to all the writers: one call instead of
+three, and a better starting point. The general rule from Chapter 9: if the goal needs information that
+no single node has, add the node that has it.</p>
+
+<h2>2. A literal judge</h2>
+
+<pre class="diagram">symptom   the review fails at the same score every time (0.5, 0.5, 0.5) with feedback that quotes a clause
+          of the rubric: "fails the 'one concrete example' constraint by introducing a second"
+cause     the rubric says something you did not mean; the judge applies it exactly
+fix       read the feedback, change the fewest words ("at least one"; "judge the whole"), test on graded answers</pre>
+
+<p>A consistent judge with a wrong rubric gives a stable wrong answer, which looks like a stubborn
+model. The score says fail; the feedback says why. Change the rubric, not the writers. Chapter 6 has the
+two habits that prevent this.</p>
+
+<h2>3. The graph stalls</h2>
+
+<pre class="diagram">symptom   the path ends early; errors is empty; a node that should have run never started
+cause     a node is waiting for an input that cannot arrive: most often a repair edge counted as a dependency,
+          or a fan-in whose branch was routed around
+fix       check the back edges (g.back_edges()); for a branch a router may skip, do not fan in on it statically,
+          route to the merge node instead</pre>
+
+<pre><code class="language-python">print(g.back_edges())                    # should list every edge that closes a cycle
+s = g.run({}, plugins=Plugins(Console()))  # with stub nodes; read which node never started</code></pre>
+
+<p>Reproduce with stubs: functions that return their own name. The engine runs the whole shape in
+milliseconds and the path shows exactly where it stopped. Then look at the deps of the node that never
+ran. A stall is the one graph problem with no error message, because from the engine's point of view
+nothing went wrong; it is simply waiting.</p>
+
+<h2>4. A cycle that never converges</h2>
+
+<pre class="diagram">symptom   the path repeats (edit, review, edit, review, edit, review); the run ends with max_visits in errors
+cause     the fail feedback does not change what the fixer does; or the goal is unreachable from here (see 1 and 2)
+fix       make feedback specific and give the fixer the previous version; lower max_visits so it fails fast;
+          add an escape: after two fails, route to a different fixer or to a human</pre>
+
+<pre><code class="language-python">g.router("review", lambda s: "pass" if s["ok"] else ("escalate" if s.get("fails", 0) >= 2 else "fail"),
+         {"pass": END, "fail": "edit", "escalate": "ask_human"})</code></pre>
+
+<p>A cycle needs a stopping rule other than the ceiling. Count fails in the state and route differently
+once they pile up: to a stronger model, to a different strategy, or to a node that writes the problem to
+a queue for a person. <code>max_visits</code> is the net, not the plan.</p>
+
+<h2>5. Two nodes on one key</h2>
+
+<pre class="diagram">symptom   StateCollision raised on the first run: "'a' and 'b' both wrote 'k'"
+cause     two parallel branches given the same output name
+fix       name outputs after the node that writes them; merge in a node after the fan-in</pre>
+
+<p>This is the one error the engine raises instead of recording, because no run of the graph can be
+trusted until it is fixed, and it is best found on the first stub run. It is also the one problem on this
+list that cannot happen in production if you ran the stubs.</p>
+
+<h2>6. A node dies</h2>
+
+<pre class="diagram">symptom   errors["node"] holds an exception text; downstream nodes never run; the path ends early
+cause     a tool raised inside plain-function node code, a network error, a model refusal, a parse failure
+fix       retries for transient errors (Node(retries=2)); on_error to a fallback node; a loop instead of a plain
+          function wherever a model is involved, because loops never raise; checkpoint so a rerun resumes</pre>
+
+<pre><code class="language-python">g.node("fetch", fetch_prices, retries=2, on_error="use_cached")
+state = g.run(init, checkpoint="data/report.json")      # a crash at node 4 of 6 resumes at node 4</code></pre>
+
+<p>Plain-function nodes should do small deterministic things: write a folder, run a subprocess, reshape a
+list. Anything that calls a model or the network belongs in a loop, which returns a status instead of
+raising, or behind retries. With a checkpoint, a dead node is a rerun away from done.</p>
+
+<h2>7. Judges cost more than workers</h2>
+
+<pre class="diagram">symptom   the per-node cost of review nodes exceeds the writers'; the judge reads the whole source on every call
+cause     the judge's prompt carries everything the task carried
+fix       give the judge the minimum it needs (the answer, the task's facts list, the summary), not the full source;
+          run deterministic checks first so the judge reads fewer answers; use the judge model once at the end,
+          a cheaper check per node</pre>
+
+<p>A judge that reads twenty thousand tokens of source material per chapter can be three quarters of a
+build's cost. Most of that is unnecessary: the outline already produced a facts list per chapter, and a
+judge that checks the chapter against its facts list and its own summary catches the same inverted
+definitions for a fraction of the tokens. Measure it before and after; Chapter 15 shows how.</p>
+
+<h2>Where to change, in order</h2>
+
+<pre class="diagram">1. shape        is there a node that holds everything the goal needs? are back edges really jumps?
+2. routers      does every cycle have a stopping rule besides max_visits? does fail go to the cheapest fixer?
+3. evaluators   read the fail feedback; fix the rubric with the fewest words; checks before judges
+4. nodes        retries and on_error for the fragile ones; checkpoint for long runs; loops where models are
+5. prompts      last, inside one node, the one sentence the trace says is missing</pre>
+
+<h2>Priya's three runs</h2>
+
+<p><strong>Priya builds the article graph from the whiteboard and it fails three times before it passes
+once, and each failure is a different row above.</strong> First run: three writers, a reviewer, no editor;
+the reviewer fails the stapled output three times (problem 1). She adds the editor and routes fails to it.
+Second run: the reviewer fails three times at exactly the same score, and the feedback names a clause of
+her rubric that said "one example" (problem 2). She changes it to "at least one" and tells the judge to
+judge the whole. Third run: pass on the first review. No writer prompt changed in any of the three. The
+shape and the rubric were the bugs, and the path and the feedback named them.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Build the article graph from Chapter 9 with stub nodes and break it in each of the seven ways: delete
+the edit node, write a rubric with an unintended "exactly", add <code>fix -&gt; assemble</code> and comment
+out the back-edge check, remove the stopping rule from a cycle, give two writers the same key, make a
+node raise, and give a stub judge a 20,000-character input. For each, write down what the path, the
+timings and the errors show before you fix it.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>How do I tell a stall from a graph that finished early on purpose?</summary><p>A
+finished graph reached END through a router or has no more edges to follow; its path includes the last
+node you expected. A stall ends before a node that has unfired inputs. Print <code>g.back_edges()</code>
+and the deps of the missing node.</p></details>
+<details><summary>Should fail feedback go to the writers or the editor?</summary><p>To the cheapest node
+that can act on it with the most context. Usually the editor, who has the previous version. Writers get
+feedback only when the complaint is about one section.</p></details>
+<details><summary>What is a good max_visits?</summary><p>Three. Most fixable fails are fixed on the first
+retry; the third is the one that tells you the goal is unreachable from here. Use a router with a fail
+count for anything smarter.</p></details>
+<details><summary>Can I make the whole graph never raise?</summary><p>Everything except StateCollision
+already never raises. Keep that one: it is a design bug and you want to know on the first stub run.</p></details>
+<details><summary>Why checkpoint at all if nodes have retries?</summary><p>Retries handle a flaky call.
+Checkpoints handle a crash of the process, a deploy mid-run, or a bug you fix and want to resume past,
+without paying for the nodes that already succeeded.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Read the path, the per-node times and the errors. A repeating pair is a non-converging cycle; an early end with no error is a stall.</li>
+<li>If the whole is bad and the parts are good, add the node that sees all the parts.</li>
+<li>A judge failing at the same score with the same feedback is a rubric bug. Change the fewest words.</li>
+<li>Every cycle needs a stopping rule besides max_visits. Route fails to the cheapest fixer with the most context.</li>
+<li>Retries, on_error and checkpoints make a graph survive the real world. Loops never raise; plain nodes should stay small.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> The path reads plan, write_a, write_b, write_c, review, write_a, write_b, write_c, review, and the reviewer complains of incoherence each time. Which problem, and the fix?</p>
+<details><summary>Answer</summary><p>No merge node. Add an editor between the fan-in and the review, fed every draft, and route fails to the editor with the previous version and the feedback.</p></details></div>
+<div class="q"><p><strong>2.</strong> A graph ends after two nodes with an empty errors dictionary. What is happening and what do you check?</p>
+<details><summary>Answer</summary><p>A stall: a node is waiting for an input that cannot arrive. Check <code>g.back_edges()</code> and the dependencies of the node that never ran; a repair edge counted as a dependency is the usual cause.</p></details></div>
+<div class="q"><p><strong>3.</strong> How do you cut a judge's cost without weakening it?</p>
+<details><summary>Answer</summary><p>Give it the minimum it needs (the answer, the facts list, the summary) instead of the full source, run deterministic checks first so it reads fewer answers, and measure before and after.</p></details></div>
+</section>

@@ -1,0 +1,196 @@
+<!--meta {"title": "Models, tokens and cost", "part": "Part II · Building loops", "minutes": 11, "summary": "One client for every model call, why prompt tokens dominate, three model roles and how to pick them by measurement, reasoning effort, caching, structured output, and the budgets that stop a bill."} -->
+
+<p class="lede">In this chapter, we will learn how to think about models the way an engineer thinks
+about any other dependency: measured, swappable, and priced. We will read the one client every call in
+agl goes through, see why the prompt and not the answer is what you pay for, name the three model roles
+and how to choose each, and learn four knobs that change cost and quality without changing a prompt:
+reasoning effort, caching, structured output and budgets. By the end you will be able to price an agent
+before you run it.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the switchboard</h4>
+<p>Every call a reporter makes goes through the switchboard, and the switchboard logs who, how long and
+what it cost. Nobody argues at the end of the month about which story was expensive; the log says.
+Because the log exists, the paper can try a cheaper phone plan for a week and compare. The client is the
+switchboard. Because it exists, "which model" is a week's experiment, not a belief.</p>
+</aside>
+
+<h2>One door</h2>
+
+<p><strong>Everything in agl that talks to a model calls <code>LLM.chat</code>, so everything is
+measured in one place.</strong></p>
+
+<pre><code class="language-python">llm = LLM()                                   # model from AGL_MODEL, key from AGL_API_KEY
+reply = llm.chat([{"role": "user", "content": "hi"}], tools=specs, json_mode=False)
+reply.text            # what it said
+reply.tool_calls      # [{"id", "name", "arguments": dict}]
+reply.usage           # prompt_tokens, completion_tokens, reasoning_tokens, cost_usd, ms, cached
+reply.raw_message     # the assistant message, ready to append to a history</code></pre>
+
+<p>The client is the official OpenAI Python SDK. <code>AGL_BASE_URL</code> points it at the model API you
+use, and a model is a string: ChatGPT 5 mini, ChatGPT 5, ChatGPT Astra, or whatever your API lists. Where
+the API reports a dollar cost per call, the client reads it rather than estimating from a price table;
+where it does not, you price from the token counts.</p>
+
+<pre><code class="language-python">@dataclass
+class Usage:
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: int      # the part of completion the model spent thinking
+    cost_usd: float            # per call, when the API reports it
+    cached: bool               # served from our cache: free
+    ms: int</code></pre>
+
+<h2>Why the prompt is what you pay for</h2>
+
+<p><strong>The whole history is resent on every call, so prompt tokens grow with every step while
+completion tokens stay small.</strong> In the run from Chapter 3, three calls cost 8,467 prompt tokens
+and 593 completion tokens. The file a tool returned on step 1 was paid for on steps 2 and 3 as well.
+Three consequences follow.</p>
+
+<pre class="diagram">cap tool output        12,000 characters per result; teach the model to ask for a slice
+compact old results    Compact plugin: shorten tool results older than the last two once the history is big
+keep tasks narrow      a loop that reads one file is cheaper than a loop that reads a folder "to be safe"</pre>
+
+<p>The Compact plugin is deterministic and free: when the history passes a size, every tool result older
+than the most recent two is cut to its first 400 characters plus a note saying how much was removed. The
+model keeps the gist and the loop stops paying for the whole file. A summary written by a model is a
+drop-in alternative when the gist is not enough; the deterministic cut is the floor.</p>
+
+<h2>Price a loop before you run it</h2>
+
+<div class="widget" data-widget="cost-calculator"></div>
+
+<p>Two things to take from the calculator. Prompt tokens dominate. And the gap between a small model and a
+frontier one is about two orders of magnitude, which decides what can run after every change and what
+runs once a week.</p>
+
+<pre class="calc">small model      4,000 / 1M x $0.10 + 300 / 1M x $0.50 = $0.00055 per call
+frontier model   4,000 / 1M x $10.00 + 300 / 1M x $50.00 = $0.055 per call
+ratio            $0.055 / $0.00055 = 100x</pre>
+
+<h2>Three roles, three models</h2>
+
+<p><strong>Name models by what they do in the loop, not by vendor.</strong></p>
+
+<pre class="diagram">AGL_MODEL         the worker      ChatGPT 5 mini     cheap and fast; runs every step, runs the exam after every change
+AGL_MODEL_JUDGE   the judge       ChatGPT 5          a different model; the exam; frozen while runs are compared
+AGL_MODEL_SMART   the specialist  ChatGPT Astra      for one node that needs it: a planner, a final reviewer</pre>
+
+<p>The worker is where the volume is, so it must be cheap enough that you never hesitate to run the
+exam. The judge must not be the worker. The specialist is for one role in a graph, chosen when a
+measurement says the worker is the bottleneck there, never for everything: a strong model everywhere is
+not an experiment, it is a bill.</p>
+
+<h2>Choosing a model by measurement</h2>
+
+<p><strong>Change the model, run the exam, read four numbers.</strong></p>
+
+<pre class="diagram">score         did the answers get better?            the exam's mean task score
+cost          per run of the exam                     equal score at higher cost is a no
+tokens        per task                               the hidden cost: a chatty model costs more on every later call
+p50 latency   what a person waiting would feel        the number that decides interactive use</pre>
+
+<p>A typical result when swapping a small worker for a faster, pricier one: the same score, half the
+latency, two to three times the cost. That is a no for the default and a yes for interactive use, and the
+right record says both: the default stays, and the faster model is documented as the option when a
+person is waiting. Decide from the numbers, write the decision next to them, and you will still
+understand it in a year.</p>
+
+<h2>Four knobs that are not prompts</h2>
+
+<h3>Reasoning effort</h3>
+
+<p>Many models think before they answer, and the thinking is billed as completion tokens. A 100-word
+paragraph can carry thousands of reasoning tokens. <code>AGL_REASONING</code> sets the effort (low,
+medium, high); low is agl's default because, on ordinary tasks, it gives the same score for less. Raise it
+for one node that needs it. The client speaks both spellings of this knob and drops it if a model
+refuses it, so a setting can never crash a run.</p>
+
+<h3>Caching</h3>
+
+<p>With <code>AGL_CACHE</code> set, the client keys each call by a hash of its model, messages and
+parameters and stores the response in SQLite. An identical rerun is free and gives identical answers,
+which is how you tell a code change from model noise. A change to any prompt misses the cache for that
+call and pays; everything else stays free.</p>
+
+<h3>Structured output</h3>
+
+<p>When the answer must be an object, ask for the object. <code>Loop(json_schema=...)</code> passes a JSON
+schema as the response format; the model must return something matching it, and <code>result.json()</code>
+parses it. This removes a whole class of "almost JSON" failures and the retries they cause. For models
+without schema support, <code>json_mode=True</code> plus a tolerant parser is the fallback.</p>
+
+<pre><code class="language-python">plan = Loop(llm, json_schema={"type": "object", "properties": {"chapters": {"type": "array", "items": {"type": "string"}}},
+                              "required": ["chapters"]})
+chapters = plan.run("Plan a three-chapter course on graphs.").json()["chapters"]</code></pre>
+
+<h3>Budgets</h3>
+
+<p>Two nets, two sizes. The Budget plugin stops one run that spends more than a cap or takes more than a
+number of steps; the run ends with status "budget" and the answer so far. <code>AGL_BUDGET_USD</code>
+stops the whole process. An unattended loop runs inside both.</p>
+
+<h2>Retries and fallbacks</h2>
+
+<p><strong>The client retries rate limits and server errors with backoff and gives up at once on client
+errors, because sending the same bad request again never helps.</strong> One special case: when a model
+rejects a setting with a 400 that names it, the client drops the setting for that client and retries
+once. The lesson generalises: anything you send that a provider might refuse should have a fallback that
+is not "crash".</p>
+
+<h2>Priya prices her course builder</h2>
+
+<p><strong>Priya counts calls before she chooses models.</strong> One outline call, one call per chapter,
+one judge call per chapter, perhaps one retry each. With a small worker and a mid-size judge, a
+three-chapter course costs cents and the judge is most of it, because the judge reads the source material
+on every call. She writes that down as her first optimisation target before she has optimised anything:
+give the judge the chapter's facts list instead of the whole source. Chapter 15 shows her measuring it.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Run <code>uv run agl models</code> to see what your API offers. Set <code>AGL_CACHE=data/cache.sqlite</code>
+and run the loop example twice; the second run should cost nothing and answer identically. Then change
+one word in the task and run again: only that call pays. Finally set <code>AGL_REASONING=high</code> and
+compare the reasoning tokens in the trace.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why one client and not each vendor's SDK?</summary><p>Because then model choice means
+code changes. With one OpenAI-compatible client, it means one string, and the client stays small enough
+to read.</p></details>
+<details><summary>Does the cache make results dishonest?</summary><p>It would if you compared a cached
+run to a fresh one. Use it to repeat an identical run for free; any change misses the cache for the calls
+it touches.</p></details>
+<details><summary>How noisy are these measurements?</summary><p>Judge-scored tasks move by a few points
+between identical runs; costs move with output length. Demand a margin before calling a change an
+improvement, and run twice when a result is close.</p></details>
+<details><summary>Should I use the specialist for the judge?</summary><p>Often, yes: the judge is called
+less and its mistakes are expensive. The worker is called most and its mistakes are caught by the judge.
+Put the strength where the leverage is.</p></details>
+<details><summary>What about streaming?</summary><p>agl does not stream; it is built for batch work and
+graphs that run in threads. A streaming client is a different trade-off, and nothing in the loop's
+design prevents it.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>One door for every model call: tokens, dollars and milliseconds per call, summed per run and per process.</li>
+<li>Prompt tokens dominate because the history is resent. Cap tool output, compact old results, keep tasks narrow.</li>
+<li>Three roles: worker, judge, specialist. Choose each by score, cost, tokens and latency, and write the decision down.</li>
+<li>Four knobs that are not prompts: reasoning effort, caching, structured output, budgets.</li>
+<li>Anything a provider might refuse needs a fallback that is not a crash.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Why do prompt tokens dominate the cost of a loop?</p>
+<details><summary>Answer</summary><p>The whole history, including every tool result, is resent on every call, so prompt tokens grow with each step while completion tokens stay small.</p></details></div>
+<div class="q"><p><strong>2.</strong> A faster model gives the same score at twice the cost. What do you do?</p>
+<details><summary>Answer</summary><p>Keep the cheaper default and record the faster model as the option for interactive use, next to the numbers that showed it.</p></details></div>
+<div class="q"><p><strong>3.</strong> Name the four knobs that change cost or quality without changing a prompt.</p>
+<details><summary>Answer</summary><p>Reasoning effort, caching, structured output (a JSON schema as the response format), and budgets.</p></details></div>
+</section>

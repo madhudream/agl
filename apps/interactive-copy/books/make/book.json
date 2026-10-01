@@ -1,0 +1,17 @@
+{
+  "slug": "make",
+  "order": 9,
+  "hue": 212,
+  "title": "Make an Interactive Book: In One Afternoon",
+  "short": "Make a book",
+  "eyebrow": "The guide, and the template",
+  "subtitle": "How the books on this shelf are written: a folder of plain HTML chapters, a few sliders, and one rule about numbers. Copy this book and replace its words with yours.",
+  "level": "a little HTML helps",
+  "scripts": ["widgets-make.js"],
+  "accent": {"light": ["#24609f", "#1a4a7d", "#e1ecf8"], "dark": ["#7db4ee", "#9cc6f3", "#14233a"]},
+  "how": [
+    "<b>Read chapter 1, then copy the folder.</b> This book is the template. Its source is the example.",
+    "<b>Keep the page source open.</b> Every component on screen is shown next to the HTML that made it."
+  ],
+  "credits": "This guide is written with the engine it describes."
+}

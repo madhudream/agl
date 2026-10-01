@@ -1,0 +1,150 @@
+<!--meta {"title": "Writing a chapter", "part": "The guide", "minutes": 9, "summary": "Every building block of a chapter, shown on screen next to the HTML that made it."} -->
+
+<p class="lede">In this chapter, we will learn every building block a chapter can use. Each one is shown
+twice: first as the reader sees it, then as the HTML you write. There are twelve blocks. A good chapter
+needs about eight of them.</p>
+
+<aside class="note analogy">
+<h4>The analogy: a box of bricks</h4>
+<p>A child with twelve kinds of brick can build a house, a bridge or a tower. The bricks stay the same. We
+give you twelve bricks and no more, so that every book on the shelf feels familiar to a reader who has
+finished another one.</p>
+</aside>
+
+<h2>The first line</h2>
+
+<p><strong>Every chapter file begins with one comment that holds its title and summary.</strong> The engine
+adds the heading, the chapter number, the reading time and the links to the next chapter. You never write
+an <code>h1</code>.</p>
+
+<pre><code class="language-bash">&lt;!--meta {"title": "Writing a chapter", "part": "The guide", "minutes": 9,
+"summary": "One line that sells the chapter."} --&gt;</code></pre>
+
+<h2>Text</h2>
+
+<h3>The opening</h3>
+<p class="lede">In this chapter, we will learn one thing, and here is why it matters to you.</p>
+<pre><code class="language-bash">&lt;p class="lede"&gt;In this chapter, we will learn ...&lt;/p&gt;</code></pre>
+
+<h3>A definition</h3>
+<p><strong>A definition is one bold sentence that a reader could repeat to a friend.</strong> The
+explanation follows in ordinary sentences.</p>
+<pre><code class="language-bash">&lt;h2&gt;Section title&lt;/h2&gt;
+&lt;p&gt;&lt;strong&gt;A definition is one bold sentence.&lt;/strong&gt; The explanation follows.&lt;/p&gt;</code></pre>
+
+<h2>Notes</h2>
+
+<aside class="note analogy"><h4>The analogy: title</h4><p>One picture from everyday life. One per
+chapter.</p></aside>
+<aside class="note tip"><h4>Tip</h4><p>Something that saves the reader time.</p></aside>
+<aside class="note warn"><h4>Watch out</h4><p>A mistake that people really make.</p></aside>
+<aside class="note lab"><h4>From the lab</h4><p>A result you measured, with its number.</p></aside>
+
+<pre><code class="language-bash">&lt;aside class="note analogy"&gt;&lt;h4&gt;The analogy: title&lt;/h4&gt;&lt;p&gt;...&lt;/p&gt;&lt;/aside&gt;
+&lt;aside class="note tip"&gt; ...   &lt;aside class="note warn"&gt; ...   &lt;aside class="note lab"&gt; ...</code></pre>
+
+<h2>Blocks of fixed text</h2>
+
+<pre class="chat">Maya:       Suggest a snack for my kids' school trip.
+Assistant:  Try cheese sticks and fruit slices.</pre>
+<pre class="calc">sessions per year     2 x 365     =   730
+tokens per year       730 x 1,500 = 1,095,000</pre>
+<pre class="diagram">question  --&gt;  search  --&gt;  top 3  --&gt;  answer</pre>
+<pre class="out">prompt tokens: 74</pre>
+<pre><code class="language-python">total = sum(prices)   # code gets a copy button</code></pre>
+
+<pre><code class="language-bash">&lt;pre class="chat"&gt;     a conversation
+&lt;pre class="calc"&gt;     arithmetic, one step per line
+&lt;pre class="diagram"&gt;  boxes and arrows drawn with characters
+&lt;pre class="out"&gt;      what a real program printed
+&lt;pre&gt;&lt;code class="language-python"&gt;   code (also bash, json, sql)</code></pre>
+
+<aside class="note warn"><h4>Watch out</h4><p>Inside any of these blocks, write <code>&amp;lt;</code> for
+&lt;, <code>&amp;gt;</code> for &gt; and <code>&amp;amp;</code> for &amp;. Otherwise the browser reads
+your text as a tag.</p></aside>
+
+<h2>Tables</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Design</th><th>"Where do I live?"</th><th>"Where did I live before?"</th></tr></thead>
+<tbody><tr><td>Overwrite</td><td>Paris</td><td>gone</td></tr>
+<tr><td>Keep both, with dates</td><td>Paris</td><td>London</td></tr></tbody></table></div>
+
+<pre><code class="language-bash">&lt;div class="table-wrap"&gt;&lt;table&gt;
+&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Design&lt;/th&gt;&lt;th&gt;...&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;Overwrite&lt;/td&gt;&lt;td&gt;...&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;
+&lt;/table&gt;&lt;/div&gt;</code></pre>
+
+<p>The wrapper lets a wide table scroll sideways on a phone while the page itself stays still.</p>
+
+<h2>An interactive</h2>
+
+<p><strong>One line places an interactive in the text.</strong> The name must match a widget in one of the
+book's scripts. Introduce it with a sentence that says what to move and what to watch.</p>
+
+<pre><code class="language-bash">&lt;p&gt;Move the years to 30 and watch the gap between the two lines.&lt;/p&gt;
+&lt;div class="widget" data-widget="savings-curve"&gt;&lt;/div&gt;</code></pre>
+
+<p>Move the years to 30 and watch the gap between the two lines.</p>
+<div class="widget" data-widget="savings-curve"></div>
+
+<h2>The four closing sections</h2>
+
+<p><strong>Every chapter ends the same way: try, questions, carry, check.</strong> They are the sections
+below this paragraph. Look at them on screen, then at their source.</p>
+
+<pre><code class="language-bash">&lt;section class="try"&gt;&lt;h2&gt;Try it yourself&lt;/h2&gt; ... &lt;/section&gt;
+
+&lt;section class="faq"&gt;&lt;h2&gt;Common questions&lt;/h2&gt;
+  &lt;details&gt;&lt;summary&gt;The question?&lt;/summary&gt;&lt;p&gt;The answer.&lt;/p&gt;&lt;/details&gt;
+&lt;/section&gt;
+
+&lt;section class="carry"&gt;&lt;h2&gt;Carry this&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;...&lt;/li&gt;&lt;/ul&gt;&lt;/section&gt;
+
+&lt;section class="check"&gt;&lt;h2&gt;Check yourself&lt;/h2&gt;
+  &lt;div class="q"&gt;&lt;p&gt;&lt;strong&gt;1.&lt;/strong&gt; Question&lt;/p&gt;
+  &lt;details&gt;&lt;summary&gt;Answer&lt;/summary&gt;&lt;p&gt;...&lt;/p&gt;&lt;/details&gt;&lt;/div&gt;
+&lt;/section&gt;</code></pre>
+
+<h2>Links</h2>
+
+<p><strong>Link to another chapter of the same book by its file name.</strong> The engine adds the book's
+address in front.</p>
+
+<pre><code class="language-bash">&lt;a href="/03-making-an-interactive/"&gt;Chapter 3&lt;/a&gt;</code></pre>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Open <code>books/make/chapters/02-writing-a-chapter.html</code> in your editor, next to this page. Change
+the text of one note, run <code>python3 engine/build.py</code> and reload.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Can I use my own CSS classes?</summary>
+<p>You can, but then your book stops looking like the others, and dark mode and phones become your job.
+Try to say it with the twelve bricks first.</p></details>
+<details><summary>How long should a chapter be?</summary>
+<p>Between 1,400 and 2,400 words, which is 8 to 12 minutes. A chapter that needs more is usually two
+ideas. Split it.</p></details>
+<details><summary>Can I add images?</summary>
+<p>Yes. Put the file in your book's <code>assets</code> folder and use an ordinary <code>img</code> tag with
+the address <code>/your-book/assets/picture.svg</code>. Always write the <code>alt</code> text.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>First line: the <code>meta</code> comment. No <code>h1</code>.</li>
+<li>Twelve bricks: lede, definition, four notes, five fixed blocks, table, widget.</li>
+<li>Every chapter ends with try, questions, carry, check.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Your calculation block shows a blank where <code>a &lt; b</code>
+should be. Why?</p>
+<details><summary>Answer</summary><p>The browser read <code>&lt; b</code> as the start of a tag. Write
+<code>a &amp;lt; b</code>.</p></details></div>
+</section>

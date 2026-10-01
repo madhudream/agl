@@ -1,0 +1,219 @@
+<!--meta {"title": "Five problems, five graphs", "part": "Part V · Real world", "minutes": 12, "summary": "Research assistant, support triage, code-review bot, document extraction pipeline, weekly report writer: each as a graph in the text form, with its evaluators, where memory goes, and what breaks first. Templates for the sixth problem, yours."} -->
+
+<p class="lede">In this chapter, we will map five common problems to five graphs, each in the six-line
+text form from Part III, with its evaluators, its memory, and the failure it hits first. None of them is
+exotic; together they cover most of what people build agents for. The point is not the five. It is that
+by the end you can do the sixth, your own, in the same five steps: contract, stages, independence,
+decisions, toolboxes.</p>
+
+<aside class="note analogy">
+<h4>The analogy: five desks</h4>
+<p>A newspaper has a news desk, a sports desk, a features desk, a copy desk and a production desk. They
+run different plans because they produce different pages, but each plan is made of the same moves:
+assign, write in parallel, check, fix, sign off. Once you have seen five desks you can set up a sixth.</p>
+</aside>
+
+<h2>1. Research assistant</h2>
+
+<p><strong>Question in, sourced brief out.</strong></p>
+
+<pre class="diagram">START -> plan                                  plan: a loop that returns 3 to 6 sub-questions as structured output
+plan -> research                               research = fanout(answer_one, over="questions", into="findings")
+research -> synthesise                         one loop that reads every finding and writes the brief
+synthesise -> review
+review ?pass-> END
+review ?fail-> synthesise</pre>
+
+<pre class="diagram">evaluate   per finding: a check that every claim carries a source handle (a file path, a URL, a quote)
+           the brief: a judge with "every claim traces to a finding; no finding is contradicted"
+tools      the researchers get read tools only (read_file, grep, a search tool); the synthesiser gets none
+memory     recall: what this user already knows and asked before; remember: the brief's conclusions, dated
+breaks     invented sources (fix: the per-finding check; a skill forbidding unsourced claims);
+           bloat in the synthesiser (fix: findings are summaries with handles, not raw pages)</pre>
+
+<p>This is the orchestrator-workers pattern: a planner produces the list, a map runs a worker per item,
+a merge node writes the whole. The reviewer judges the brief, and fails go to the synthesiser, who has
+every finding, never back to the researchers.</p>
+
+<h2>2. Support triage</h2>
+
+<p><strong>Message in, policy-safe reply out, routed to the right specialist.</strong></p>
+
+<pre class="diagram">START -> classify                              a cheap loop; structured output {"kind": ..., "summary": ...}
+classify ?billing-> billing                    three specialist loops, each with its own system prompt and tools
+classify ?bug-> bug
+classify ?other-> general
+billing, bug, general -> policy_check          deterministic; runs every time; the model cannot skip it
+policy_check ?ok-> END
+policy_check ?billing-> billing                a fail goes back to the handler that wrote the reply, with the rule it broke
+policy_check ?bug-> bug
+policy_check ?other-> general</pre>
+
+<pre class="diagram">evaluate   classify: a check that the label is one of the allowed set
+           each handler: the policy check as its own evaluator too, so most replies never reach the graph's check
+           the graph: policy_check, a list of regexes with a reason each ("do not promise refunds")
+tools      billing: look up the account, open a review; bug: none, it asks the one reproducing question; general: none
+memory     recall: this customer's history; remember: what was promised, dated
+breaks     the classifier's label set drifts (fix: the check); a handler promises what it cannot do
+           (fix: the policy list, and the capability stated in the handler's system prompt)</pre>
+
+<p>This is <code>examples/triage.py</code>, and it runs. It is the routing and handoff pattern: the
+router's targets are loops with different prompts, and a deterministic check at the end is the policy. A
+policy violation is a loop-level fail first (cheap, with the exact rule as feedback) and a graph-level
+route second (insurance).</p>
+
+<h2>3. Code-review bot</h2>
+
+<p><strong>Diff in, review comments and a verdict out, with the tests as the judge of record.</strong></p>
+
+<pre class="diagram">START -> read_diff                             plain Python: the diff and the touched files into the state
+read_diff -> propose                           a loop with read_file and grep: findings as structured output
+propose -> verify                              a second model re-reads each finding against the code
+verify -> run_tests                            the real test suite in a subprocess
+run_tests ?pass-> write_review
+run_tests ?fail-> write_review                 tests failing is a finding, not an error
+write_review -> END</pre>
+
+<pre class="diagram">evaluate   propose: each finding has a file, a line and a concrete failure scenario (a check)
+           verify: a judge on a different model with "would this finding survive a careful reviewer?"
+           run_tests: the tests; the strongest evaluator there is
+tools      propose and verify: read only; run_tests: a subprocess with a timeout and no network
+memory     recall: this repository's conventions (better as skills); remember: findings the humans accepted
+breaks     findings that are true but unimportant (fix: the verify judge's rubric asks for consequence);
+           a bot that edits code (fix: it does not have write tools; a human applies)</pre>
+
+<p>Two review cycles stacked: a second model verifies the first model's findings, and the tests verify
+the code. The bot has no write tool on purpose. Suggest, verify, let a person apply.</p>
+
+<h2>4. Document extraction pipeline</h2>
+
+<p><strong>A folder of PDFs in, one clean table out, every row traceable to its page.</strong></p>
+
+<pre class="diagram">START -> list_docs                             plain Python
+list_docs -> extract                           extract = fanout(extract_one, over="docs", into="records")
+extract -> normalise                           plain Python: units, dates, currency
+normalise -> validate                          a schema check on every record; rows that fail go to a repair list
+validate ?ok-> load
+validate ?fail-> repair                        a loop that re-extracts only the failing fields, with the error
+repair -> normalise
+load -> END</pre>
+
+<pre class="diagram">evaluate   per record: a JSON schema (structured output makes most of this unnecessary) and a page handle
+           a sample of records: a judge comparing the row to the page text it came from
+tools      extract: read_pdf for its one document; nothing else
+memory     none per run; a cache of extracted records keyed by document hash so reruns are free
+breaks     bloat (fix: read_pdf with max_chars and a page selection step for long documents);
+           silent wrong values (fix: the sample judge, and a per-field confidence the model must state)</pre>
+
+<p>A sequence with a map in the middle and a repair path on the validator. Structured output turns
+"almost JSON" into a non-problem, and a checkpoint makes a 400-document run resumable after a crash at
+document 312.</p>
+
+<h2>5. Weekly report writer</h2>
+
+<p><strong>Logs, metrics and last week's report in; this week's report out, consistent with last week's.</strong></p>
+
+<pre class="diagram">START -> gather                                plain Python or a loop with query tools: numbers into the state
+gather -> sections                             sections = fanout(write_section, over="section_specs", into="drafts")
+sections -> edit                               one editor merges and keeps the running narrative from last week
+edit -> number_check                           deterministic: every number in the text appears in the gathered data
+number_check ?ok-> review
+number_check ?fail-> edit
+review ?pass-> END
+review ?fail-> edit</pre>
+
+<pre class="diagram">evaluate   number_check: a regex over the prose, every figure matched against the data (invented numbers cannot pass)
+           review: a judge with "consistent with last week's report; changes explained; no unsupported claims"
+tools      gather: query tools; writers and editor: none
+memory     recall: last week's report and its open items; remember: this week's conclusions and promises
+breaks     invented or stale numbers (fix: number_check, which is the whole reason this graph exists);
+           a report that contradicts last week's without saying so (fix: last week's report in the editor's context)</pre>
+
+<p>Fan-out, fan-in, a deterministic check that cannot be argued with, then a judge. The number check is a
+pattern worth stealing for any prose that contains figures: the data is the source of truth, and a number
+not in the data is a fail with the number in the feedback.</p>
+
+<h2>The five, side by side</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Problem</th><th>Patterns</th><th>Deterministic evaluator</th><th>Judge</th><th>First failure</th></tr></thead>
+<tbody>
+<tr><td>Research assistant</td><td>plan, map, merge, review cycle</td><td>every claim has a source handle</td><td>brief traces to findings</td><td>invented sources</td></tr>
+<tr><td>Support triage</td><td>router, specialists, policy check</td><td>label set; policy regexes</td><td>optional tone judge</td><td>promises it cannot keep</td></tr>
+<tr><td>Code-review bot</td><td>sequence, two review cycles</td><td>finding shape; the tests</td><td>would a reviewer keep this finding</td><td>true but unimportant findings</td></tr>
+<tr><td>Document extraction</td><td>map, normalise, validate, repair</td><td>a schema per record</td><td>a sample against its page</td><td>silent wrong values</td></tr>
+<tr><td>Weekly report</td><td>gather, map, merge, check, review</td><td>every number is in the data</td><td>consistent with last week</td><td>stale numbers</td></tr>
+</tbody></table></div>
+
+<p>Read down the deterministic column. Every one of these has a free check that catches the worst
+failure before any judge is paid for. Read the first-failure column: every one is a problem from
+Chapters 8 and 12, and the fix is in the graph, not the prompt.</p>
+
+<h2>The sixth: yours</h2>
+
+<pre class="diagram">1. contract      what must exist when the graph ends, and what program says it is acceptable? that is the last node
+2. stages        what has to be true before that check can pass? one node each
+3. independence  which stages do not need each other? one wave. which repeat per item? fanout
+4. decisions     where does the path depend on the result? a router. what happens on fail? a repair node
+5. toolboxes     each node gets only its stage's tools; readers read, writers write, checkers run</pre>
+
+<p>Then, for each loop node: its evaluator (a check first, a judge if you must), its skills, and the
+feedback sentence a fail should carry. Run it with stub nodes and read the path. Write three exam tasks.
+Then plug in the model.</p>
+
+<h2>Priya's sixth</h2>
+
+<p><strong>Priya's students ask questions about the courses, and she wants an assistant that answers
+from the course text and nothing else.</strong> Contract: an answer that cites a chapter and a section,
+checked by a function that verifies the citation exists and the quoted text is in it. Stages: find the
+relevant sections (a loop with a grep over the book), answer (a loop with no tools and the sections in
+its context), cite-check (deterministic). Decisions: a cite-check fail goes back to the answerer with the
+missing citation named; a second fail routes to "I do not know; here is where to look". Toolbox: the
+finder reads; the answerer gets nothing; nothing writes. Memory: recall what this student has already
+covered. She has drawn it in ten minutes, because it is the research assistant with a stricter contract.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Pick one of the five and build it with stub nodes in the text form; read the path. Then replace one
+node with a real loop and give it the evaluator from the table. Then your sixth: write the five steps for
+a problem from your own work before you write a node, and write its three exam tasks before you run it.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Where do multi-agent "debates" fit?</summary><p>A fan-out of the same task to several
+loops (parallelisation by voting), then a judge or a majority function at the fan-in. It is the research
+assistant's shape with identical workers and a different merge.</p></details>
+<details><summary>Should every graph have memory?</summary><p>Only the ones that run for the same person
+or project more than once. Extraction pipelines want a cache, not a memory. Assistants and report writers
+want both recall and remember.</p></details>
+<details><summary>How big should a node be?</summary><p>One job, one toolbox, one evaluator. If you
+cannot name a node's evaluator, split it or merge it. A node whose only check is "the model returned
+something" is a node that will fail silently.</p></details>
+<details><summary>What about a human step in the middle?</summary><p>A node that writes to a queue and
+returns, with the rest of the graph resumed from a checkpoint when the person answers; or Approval on the
+tools that act. Humans gate actions and sign off outputs; they do not sit inside a wave.</p></details>
+<details><summary>Can I run these across a team of services?</summary><p>Each graph serves over HTTP
+(Chapter 18), so a node can call another service's graph as a sub-graph. Keep the state small and keep
+the checkpoint on the caller's side.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Five problems, five graphs, the same moves: plan or classify, map in parallel, merge, check deterministically, judge, repair.</li>
+<li>Every one has a free check that catches its worst failure before a judge is paid for.</li>
+<li>Bots that act need Approval or no write tools; bots that read untrusted text get no acting tools.</li>
+<li>The sixth problem is five steps: contract, stages, independence, decisions, toolboxes. Then evaluators, stubs, exam tasks, model.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> In the weekly report graph, what does number_check do and why is it deterministic?</p>
+<details><summary>Answer</summary><p>It matches every figure in the prose against the gathered data and fails with the stray number in the feedback; a program can do this exactly, so no judge is needed for the worst failure, invented numbers.</p></details></div>
+<div class="q"><p><strong>2.</strong> Why does the code-review bot have no write tool?</p>
+<details><summary>Answer</summary><p>Its job is to suggest and verify; a person applies. A bot that edits code combines the riskiest action with the least reliable judgment. Approval or no write tools are the two safe designs.</p></details></div>
+<div class="q"><p><strong>3.</strong> Which pattern is the research assistant, and where do review fails go?</p>
+<details><summary>Answer</summary><p>Orchestrator-workers: a planner lists sub-questions, a map runs a researcher per question, a synthesiser merges. Fails go to the synthesiser, who has every finding, never back to the researchers.</p></details></div>
+</section>

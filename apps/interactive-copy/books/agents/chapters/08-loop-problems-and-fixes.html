@@ -1,0 +1,195 @@
+<!--meta {"title": "Loop problems and fixes", "part": "Part II · Building loops", "minutes": 12, "summary": "The eight ways a loop goes wrong, each with the symptom you will see in a trace, the cause, and the fix in code: runaway, flailing, tool errors, context bloat, format drift, invented facts, injection through tools, and non-determinism."} -->
+
+<p class="lede">In this chapter, we will learn to recognise a sick loop from its trace and to fix it
+without touching the prompt first. Eight problems account for nearly every bad run. For each we give the
+symptom as it appears in the trace, the cause, the fix, and the line in agl that implements the fix. By
+the end you will diagnose a failing loop in a minute and know which of four places to change: the tools,
+the evaluator, the plugins, or, last, the prompt.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the night editor's checklist</h4>
+<p>An experienced night editor does not read a late story from the top. She looks for the usual
+failures: no source for a number, a quote that runs too long, the same paragraph twice, a reporter who
+has been "almost done" for three hours. Each has a known cause and a known fix. This chapter is that
+checklist for loops.</p>
+</aside>
+
+<h2>How to read a trace</h2>
+
+<p><strong>Every problem below is visible in three columns of the trace: the step number, the prompt
+tokens, and what the model did.</strong> Before any fix, open <code>traces/run.jsonl</code> or run
+<code>agl viz</code> and answer three questions: how many steps did it take, what did the prompt tokens do
+over those steps, and what did the model call or say at each one. The pattern in those three columns
+names the problem.</p>
+
+<h2>1. Runaway: the loop never stops calling tools</h2>
+
+<pre class="diagram">symptom   steps climb to max_steps; the same tool is called with the same or near-same arguments
+cause     the model is not getting what it needs from the tool, or does not know what "done" looks like
+fix       lower max_steps so it fails fast; make the tool return the thing it keeps looking for;
+          say in the task what the final answer must contain</pre>
+
+<p>The status will be <code>max_steps</code>. Read which tool it repeated. A model that calls
+<code>list_files</code> five times usually wants a file it cannot name; give it <code>grep</code>. A model
+that re-reads the same file is looking for something that is not there; the task should say what to do
+when the answer is absent. The Budget plugin is the net under all of this: a run that spends more than
+its cap ends with status <code>budget</code> whatever the model wants.</p>
+
+<h2>2. Flailing: many steps, no progress</h2>
+
+<pre class="diagram">symptom   steps_mean is high; each step calls a different tool; the answer, when it comes, is a guess
+cause     too many tools, or a task with more than one reading
+fix       fewer tools; a task with exactly one reading; a graph if the work has known stages</pre>
+
+<p>Flailing is the model doing the planning you did not do. The cure is rarely a better prompt. Remove
+tools until only the needed ones remain; the trace shows which were used. Rewrite the task so that two
+careful readers would do the same thing. If the task has stages (find, then compute, then write), that is
+a graph, and Part III makes each stage a node with its own small toolbox.</p>
+
+<h2>3. Tool errors: the model cannot use what it has</h2>
+
+<pre class="diagram">symptom   tool results begin with "error:"; the model retries with different arguments or switches tools
+cause     a tool that cannot do the obvious thing, a confusing description, or a schema the model misreads
+fix       fix the tool: accept the obvious input; put the common mistake in the first line of the docstring</pre>
+
+<p>Because tool errors return as text, the loop survives them, and that is exactly why they hide. A
+model that recovers from a tool bug in three extra steps looks like it worked. Count the
+<code>error:</code> results in the trace. One real case: a search tool took a folder and globbed under
+it, so a model that passed a file path got "no matches" and fell back to the shell. The fix was two lines
+in the tool (if the path is a file, search that file) and the loop went from five steps to two.</p>
+
+<h2>4. Context bloat: every call costs more than the last</h2>
+
+<pre class="diagram">symptom   prompt tokens grow by thousands per step; latency and cost climb; late answers get worse
+cause     tool results are in the history and the history is resent on every call
+fix       cap tool output (to_text does); ask for slices (read_file start, end); the Compact plugin;
+          split the work into nodes so each loop has a short history</pre>
+
+<pre><code class="language-python">from agl import Compact
+loop = Loop(llm, tools=tb, plugins=default_plugins() + Plugins(Compact(max_chars=60_000, keep_recent=2)))</code></pre>
+
+<p>Compact is deterministic: once the history passes a size, tool results older than the last two are
+cut to their first 400 characters plus a note of how much was removed. The model keeps the gist. Late
+answers also get worse for a second reason, "context rot": models attend less well to the middle of a
+long history. Shorter histories are better histories, which is one more argument for graphs.</p>
+
+<h2>5. Format drift: the answer is almost right</h2>
+
+<pre class="diagram">symptom   evaluator fails for shape: a sentence around the number, a code fence around the JSON, a trailing note
+cause     the model is being helpful; the task did not say the shape was the whole point
+fix       a check with precise feedback ("reply with only the number"); json_schema for objects; parse_json for the rest</pre>
+
+<p>This is the one problem where the fix is partly the prompt: end the task with the exact shape. But
+the durable fix is the evaluator, because a check with good feedback fixes drift on the first retry every
+time, and structured output removes it entirely for objects:</p>
+
+<pre><code class="language-python">Loop(llm, json_schema={"type": "object", "properties": {"answer": {"type": "integer"}}, "required": ["answer"]})</code></pre>
+
+<h2>6. Invented facts: confident numbers from nowhere</h2>
+
+<pre class="diagram">symptom   statistics, citations, study names, dates that cannot be found anywhere in the tools' output
+cause     the model was asked to be specific and had nothing specific to say; or a skill demanded numbers
+fix       ground it: put the source in the context and say "facts must come from here";
+          a skill that forbids any number without a source in hand; a judge that checks claims against the source</pre>
+
+<p>Writers told to "support every claim with a number" will invent the number. The rule that works is
+the opposite: never invent a number, a study or a citation; a worked example you construct is better
+than a statistic you recall. Put that in a skill file so every writer reads it. Then ground: when the
+task has source material, put it in the context message and have the judge's rubric say "every claim
+agrees with the source material in the task".</p>
+
+<h2>7. Injection: instructions arriving through tools</h2>
+
+<pre class="diagram">symptom   the model does something nobody asked for right after reading a file, a page or a ticket
+cause     the text it read contained instructions, and the model followed them
+fix       scope: no acting tools in a loop that reads untrusted text; Approval on tools that act;
+          a system prompt line that tool output is data, not instructions</pre>
+
+<p>Scope is the defence that works. A summariser with only <code>read_file</code> can be fooled into a bad
+summary, which the evaluator catches; it cannot be fooled into deleting files. For loops that must both
+read untrusted text and act, put the acting tools behind Approval, and prefer a graph where the reader
+node and the actor node are different loops with different toolboxes.</p>
+
+<h2>8. Non-determinism: it worked yesterday</h2>
+
+<pre class="diagram">symptom   the same task passes, then fails, with no change to code
+cause     sampling; a judge near its threshold; a task with two readings; an upstream model change
+fix       temperature 0 for judges; the cache for exact reruns; a margin before calling a change real;
+          tasks with one reading; a frozen judge model and rubric during comparisons</pre>
+
+<p>Some variance is the model's nature and the exam in Chapter 15 is built to live with it: it reports a
+mean score over many tasks, and the rule for a change is a margin, not a single run. The variance you can
+remove, remove: judges at temperature 0, structured output for shapes, tasks with one reading. The cache
+turns an identical rerun into an exact replay, which is how you prove a failure is noise and not a bug.</p>
+
+<h2>Where to change, in order</h2>
+
+<pre class="diagram">1. tools        can the tool do the obvious thing? does its first line say when to use it? is it capped?
+2. evaluator    does the feedback name the fact, the target and the action? is the shape checked?
+3. plugins      Budget, Compact, Approval, a skill file with the rule the model keeps breaking
+4. structure    does the task have stages? then it is a graph (Part III)
+5. prompt       last, and only the one sentence the trace says is missing</pre>
+
+<p>Prompts are last because they are the least durable fix: a prompt that works for one model and one
+task drifts with both. A tool, a check or a plugin keeps working.</p>
+
+<h2>Priya's bad night</h2>
+
+<p><strong>Priya's chapter writer takes six steps and comes back with a chapter about the wrong thing.</strong>
+The trace shows the writer calling <code>read_file</code> four times on the source material, each time
+a different slice, the prompt growing to 40,000 tokens, and a chapter whose summary contradicts the
+source. Three problems from the list: bloat (4), a flavour of flailing (2), and invented content (6). She
+gives the writer the source in the context message instead of a file tool, so it reads once and has no
+reason to call anything; adds a content judge whose rubric says "every claim agrees with the source";
+and the next run is one step, a quarter of the tokens, and a chapter that matches. No prompt changed.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Break the loop example on purpose, one problem at a time. Remove <code>calc</code> and ask for a
+product (watch for invented arithmetic). Give it <code>list_files</code> only and ask about a file's
+contents (watch for runaway). Return a 50,000-character string from a tool (watch the prompt tokens).
+For each, write the one-line fix before you look at the list above.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Should I just use a stronger model?</summary><p>Sometimes, for one role, after
+measuring. A stronger model flails less and invents less, but a tool bug or an ambiguous task breaks it
+too, and it costs more on every call. Fix the structure first; the strong model is then an upgrade, not a
+patch.</p></details>
+<details><summary>How do I know whether a failure is the model or my code?</summary><p>Rerun with the cache
+on: identical. Rerun without: if it passes, it was noise or sampling; if it fails the same way, read the
+trace for the pattern above. A failure that repeats with the same tool error or the same feedback is
+yours.</p></details>
+<details><summary>What about the model refusing a task?</summary><p>Refusals show up as an answer with no
+tool calls and a polite no. Usually the task reads as something it should not do. Narrow the task, state
+the legitimate purpose in the system prompt, and check the tool output that preceded the refusal for
+injected text.</p></details>
+<details><summary>Is a retry of the whole run a fix?</summary><p>It is a mask. A run that passes on the
+second attempt without any change will fail again at the worst time. Retry transient errors (rate limits)
+in the client; fix everything else.</p></details>
+<details><summary>Can the evaluator itself be the problem?</summary><p>Yes, and it is the second thing to
+check. An evaluator with vague feedback causes flailing on the outer cycle; a rubric with one wrong word
+causes repeated fails on good answers. Read the fail feedback in the trace.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Read three columns of the trace: steps, prompt tokens, what the model did. The pattern names the problem.</li>
+<li>Runaway and flailing: fewer tools, one reading, lower max_steps, or a graph.</li>
+<li>Bloat: cap, slice, Compact, split. Format drift: a check with precise feedback or a JSON schema.</li>
+<li>Invented facts: ground the source and forbid unsourced numbers in a skill. Injection: scope the toolbox.</li>
+<li>Change tools, then evaluator, then plugins, then structure. The prompt last.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Prompt tokens grow by 4,000 each step and late answers get worse. Which problem, and which two fixes?</p>
+<details><summary>Answer</summary><p>Context bloat. Cap or slice tool output and add the Compact plugin; for stages of work, split into graph nodes so each loop keeps a short history.</p></details></div>
+<div class="q"><p><strong>2.</strong> Why do tool errors hide so well?</p>
+<details><summary>Answer</summary><p>Because they return as text and the model usually recovers in a few extra steps, so the run passes and only the trace shows the "error:" results and the wasted steps.</p></details></div>
+<div class="q"><p><strong>3.</strong> Why is the prompt the last place to change?</p>
+<details><summary>Answer</summary><p>A prompt fix drifts with the model and the task; a tool, a check or a plugin keeps working. Fix structure first and change only the sentence the trace says is missing.</p></details></div>
+</section>

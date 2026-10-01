@@ -1,0 +1,220 @@
+<!--meta {"title": "Evals and the improvement loop", "part": "Part IV · Around the loop", "minutes": 12, "summary": "Write an exam for your own agent: tasks as JSON lines, cheap checks then a judge, one grep-able summary, a results log with the commit. Then the autoresearch pattern: a brief that lets an agent improve your project overnight, kept honest by scope, gate and log."} -->
+
+<p class="lede">In this chapter, we will learn how to know whether your agent got better. We will write
+an exam: a file of tasks with expected answers, a grader that runs cheap checks before a judge, a summary
+you can grep, and a results log with the commit each row was measured on. Then we will build the open-ended
+loop from <a href="/agents/02-which-problems-suit-a-loop/">Chapter 2</a> on top of it: a brief, in the
+shape of karpathy/autoresearch's program.md, that lets an agent improve your project while you sleep. By
+the end you will have both for your own agent and the three rules that keep the second one honest.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the daily edition and the night desk</h4>
+<p>However good the newsroom feels about itself, the paper comes out every day and can be checked: were
+the scores right, did it come out on time. The exam is the daily edition for an agent: boring, the same
+every day, and the only thing that lets you say "better" and mean it. The night desk is the loop that
+uses it: pick one thing to improve, try it, check the edition, keep or throw away, write one line in the
+log, repeat, with nobody to ask.</p>
+</aside>
+
+<h2>A task is one line</h2>
+
+<pre><code class="language-json">{"id": "calc-chain", "task": "What is (1234 * 5678) - 99 ? Reply with only the number.", "tools": ["calc"],
+ "expect": {"contains": "7006553"}}
+{"id": "format-strict", "task": "List the three primary colors as a comma-separated lowercase list with no spaces and nothing else.",
+ "expect": {"regex": "^(red|blue|yellow),(red|blue|yellow),(red|blue|yellow)$"}}
+{"id": "explain", "task": "In at most 120 words, explain the difference between loop and graph engineering ...",
+ "expect": {"contains": "pre-determines", "max_len": 1200, "judge": "Clear, accurate; loops decide at run time, graphs fix the order ...", "min_score": 0.7}}
+{"id": "article", "graph": "examples.graph_fanout:build", "state": {"topic": "why agents need evaluators"},
+ "expect": {"key": "final", "min_len": 300, "judge": "One coherent article, not three pasted drafts ...", "min_score": 0.7}}</code></pre>
+
+<p>A task names the tools it is allowed, which doubles as documentation of what the task needs. A task is
+a loop (a task string) or a graph (a path to a <code>build(llm)</code> function and an initial state), so
+a whole workflow is one exam row. <code>expect</code> lists checks; the model never sees it.</p>
+
+<h2>The grader</h2>
+
+<p><strong>Deterministic checks run first, all must pass, and the judge runs last and only if they did.</strong></p>
+
+<pre><code class="language-python">def grade(answer, expect, task, judge_llm):
+    for key, val in expect.items():
+        if key == "contains" and not all(v.lower() in answer.lower() for v in as_list(val)): return False, 0.0, f"missing {val!r}"
+        if key == "equals" and answer.strip() != str(val).strip():                           return False, 0.0, f"expected {val!r}"
+        if key == "regex" and not re.search(val, answer, re.S):                              return False, 0.0, "regex did not match"
+        if key == "json_keys" and (missing := [k for k in val if k not in parse_json(answer)]): return False, 0.0, f"missing {missing}"
+        # min_len, max_len, not_contains likewise
+    if "judge" in expect:
+        reply = judge_llm.chat([{"role": "user", "content": f"Score this answer against the rubric ... {task} ... {answer} ... {expect['judge']}"}],
+                               json_mode=True, temperature=0)
+        score = float(parse_json(reply.text)["score"])
+        return score >= expect.get("min_score", 0.7), score, reason
+    return True, 1.0, "ok"</code></pre>
+
+<p>A deterministic task scores 0 or 1; a judged task scores the judge's 0 to 1. The judge is
+<code>AGL_MODEL_JUDGE</code>, a different model from the worker. A crash scores 0 and is marked, so it
+can never hide inside an average.</p>
+
+<h2>The summary</h2>
+
+<pre class="out">id                    pass  score   steps   ms      $        detail
+calc-chain            PASS  1.0    2       2759    0.00011   ok
+format-strict         PASS  1.0    1       11060   0.00041   ok
+explain               PASS  0.8    1       24529   0.00087   clear; could say more about parallelism
+article               PASS  1.0    6       120839  0.00552   one coherent article with a concrete example
+...
+---
+score:        98.3
+pass_rate:    100.0
+n:            12
+cost_usd:     0.0086
+tokens_mean:  6792
+steps_mean:   2.17
+ms_p50:       4923
+ms_p95:       120839
+crashes:      0
+RESULT:       OK</pre>
+
+<p>Each line of the block is one fact a loop can grep. <code>score</code> is the number. <code>cost_usd</code>
+and <code>tokens_mean</code> are first-class: a change that gains two points and doubles tokens is not an
+improvement. <code>ms_p50</code> is what a person waiting would feel. <code>steps_mean</code> says whether
+the model is flailing. <code>RESULT</code> is OK unless something crashed.</p>
+
+<pre class="calc">score        mean of the task scores: (11 x 1.0 + 0.8) / 12 = 98.3%
+the gap      one judged task scored 0.8: a pass above its threshold, not a perfect judge score</pre>
+
+<h2>The results log</h2>
+
+<p><strong>One row per run, with the commit it was measured on.</strong> <code>agl eval --desc "what you
+changed"</code> appends to <code>results.tsv</code>: commit, model, score, pass rate, cost, tokens, p50,
+status, description. Status starts as pending; you set it to keep, discard or crash after reading the
+numbers. Tab-separated, because descriptions have commas. A row you can check out and rerun is the
+difference between a log and a memory.</p>
+
+<h2>Five rules for a good task</h2>
+
+<pre class="diagram">1. one reading       the task text has exactly one correct interpretation; two careful readers would do the same thing
+2. frozen fixtures   expected values come from files nothing edits (evals/fixtures/); never pin a count to a file you change
+3. minimal tools     give the task only the tools it should need; a model that reaches for others is a finding
+4. never weaken      a failing task is fixed by fixing the agent or the framework, never by loosening the check
+5. judge last        rubric tasks get deterministic guards too (a required phrase, a length cap), so the judge
+                     only sees answers of the right shape</pre>
+
+<p>Rule 4 is the one that keeps the exam an exam. The moment you edit a task to make it pass, the number
+stops meaning anything.</p>
+
+<h2>Noise</h2>
+
+<p><strong>Judge scores move by a few points between identical runs, and cost moves with output length.</strong>
+So the rule for a change is a margin, not a single run: at least one point on score, or equal score with
+fewer tokens or less code, and run twice when a result is close. With the client's cache on, an identical
+rerun is free and exact, which separates a code change from the model's mood.</p>
+
+<h2>The improvement loop</h2>
+
+<p><strong>With an exam in place, you can hand the improvement of your own project to an agent.</strong>
+karpathy/autoresearch, on the whiteboard's last board, is the purest form: three files and a protocol.
+<code>prepare.py</code> holds the data and the evaluation and may not be touched. <code>train.py</code> is
+the only file the agent edits. <code>program.md</code> is the brief:</p>
+
+<pre class="diagram">LOOP FOREVER:
+  1. look at the git state
+  2. edit train.py with one experimental idea
+  3. git commit
+  4. run:  uv run train.py > run.log 2>&1        (never let the output flood your context)
+  5. read: grep "^val_bpb:" run.log
+  6. if empty, the run crashed: tail the log, fix if trivial, else log "crash" and move on
+  7. append a row to results.tsv:  commit  val_bpb  memory_gb  status  description
+  8. if the number improved, keep the commit; otherwise git reset to where you started</pre>
+
+<p>A fixed time budget per try makes every try comparable. One number, one grep. Commit before run, keep
+or reset after, one line in the log. And the instruction that makes it autonomous: never stop; the human
+might be asleep; if you run out of ideas, think harder. The projects next to it on the board (ruff, zstd,
+mem0, ripgrep) are there because each has a number already, which is all this needs.</p>
+
+<p>program.md adds the sentence every engineer should keep: "A small improvement that adds twenty lines
+of hacky code? Probably not worth it. A small improvement from deleting code? Definitely keep. An
+improvement of about zero but much simpler code? Keep." Simplicity is a tie-breaker written into the loop.</p>
+
+<h2>Your own brief</h2>
+
+<pre class="diagram">1. the number       one command that prints it; one grep that reads it; which way is better
+2. the scope        files it may edit; files it may not; whether it may add dependencies
+3. the gate         what must pass before a run counts: tests, lint, a budget, RESULT: OK
+4. the protocol     commit, run, read, keep or reset, log; the exact commands
+5. the rules        simplicity criterion; noise margin; cost is a metric; never stop; never ask
+6. the backlog      ten ideas to start with, so the first hour is not spent thinking of one</pre>
+
+<p>For an agent built with agl, the number is the exam's score with cost beside it, the scope is the
+agent's code and skills but never the exam or its fixtures, the gate is lint and tests and
+<code>RESULT: OK</code>, and the protocol is <code>agl eval --desc</code> after every change. The brief is
+a file in the repository the agent reads first; call it CLAUDE.md or AGENTS.md or program.md, the name
+matters less than the content.</p>
+
+<h2>Scope, gate, log</h2>
+
+<p><strong>Three rules keep an unattended loop honest.</strong> Scope: the loop may edit the thing being
+improved, never the measurement. The first discovery of any loop without a scope rule is that the easiest
+way to improve the number is to change how it is measured, and every gap in the scope will be found.
+Gate: lint and tests before any paid run, and a crash or a failing test is a discard whatever the score.
+Log: one row per run with the commit, plus a sentence a person can read in the morning. A discard is
+knowledge too; unlogged, it will be tried again next month.</p>
+
+<h2>Priya's exam and brief</h2>
+
+<p><strong>Priya turns the measurable half of her Chapter 2 list into tasks.</strong> "Every chapter passes
+the build check" becomes a graph task whose expected key is <code>build_ok</code>. "A build costs under a
+set amount" is read off <code>cost_usd</code>. "Chapters are correct" becomes a judge task with a required
+phrase from the source as a deterministic guard. She runs it once by hand, writes the row, and then writes
+her brief: the number is the exam score and the cost per book; the scope is her skills and prompts and
+nodes, never the checker or the tasks; the gate is <code>build.py --check</code>; the first backlog item is
+"judge chapters against their facts list instead of the full source". Then she goes to sleep.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Write five tasks for an agent you have, deterministic checks only, following the five rules. Run
+<code>uv run agl eval</code> and read the summary. Write a deliberately ambiguous version of one task and
+run it three times; count the readings the model found. Then write a one-page brief for your project in
+the six-part shape, and run one iteration of it by hand, including the row.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>How many tasks is enough?</summary><p>Enough to catch regressions and compare
+settings: a dozen that run in minutes for cents, after every change, beats a hundred that run weekly.
+Grow it by one task every time a failure teaches you something.</p></details>
+<details><summary>Can the worker model see the expected answer?</summary><p>No. Tasks give the model
+the task text and the tools; <code>expect</code> is only read by the grader. Keep it that way, or the exam
+measures reading comprehension of the exam.</p></details>
+<details><summary>How do I pick min_score for judged tasks?</summary><p>Run the task a few times, read the
+answers yourself, look at the scores the judge gave the ones you would accept, and put the line just below
+them. Then leave it alone.</p></details>
+<details><summary>Why commit before running?</summary><p>So the row points at exactly the code that was
+measured. Keep means the commit stays; discard means reset to the one before. The log and the history
+agree by construction.</p></details>
+<details><summary>Does the loop really never stop?</summary><p>It stops on a budget gate or when a person
+interrupts. "Never stop" tells the agent not to pause for permission, because the person is asleep and
+permission would never come.</p></details>
+<details><summary>How is this different from continuous integration?</summary><p>CI checks that changes a
+person made broke nothing. This loop makes the changes, measures them and decides. CI is the gate inside
+it.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>A task is one JSON line: text, allowed tools, expectations. A graph can be a task.</li>
+<li>Deterministic checks first, then a judge on a different model, only for answers that passed the checks.</li>
+<li>One grep-able summary and one row per run with the commit. Cost is first-class; demand a margin.</li>
+<li>One reading, frozen fixtures, minimal tools, never weaken a task, judge last.</li>
+<li>The improvement loop: a brief with the number, the scope, the gate, the protocol, the rules, a backlog. Scope, gate, log.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> In what order does the grader apply checks, and why?</p>
+<details><summary>Answer</summary><p>All deterministic checks first, failing fast; the judge last and only if they passed, so the expensive call is spent only on answers of the right shape.</p></details></div>
+<div class="q"><p><strong>2.</strong> Which file may autoresearch's agent edit and which may it not, and what does that protect?</p>
+<details><summary>Answer</summary><p>Only train.py, never prepare.py, which holds the evaluation; otherwise the easiest way to improve the number would be to change how it is measured.</p></details></div>
+<div class="q"><p><strong>3.</strong> Name the three rules that keep an unattended improvement loop honest.</p>
+<details><summary>Answer</summary><p>Scope (edit the thing, never the measurement), gate (lint, tests and a clean RESULT before a run counts), log (one row per run with the commit, plus a readable sentence).</p></details></div>
+</section>

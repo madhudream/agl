@@ -1,0 +1,210 @@
+<!--meta {"title": "Your first loop", "part": "Part II · Building loops", "minutes": 11, "summary": "Install agl, make one client, one loop, one tool and one check, run it, and read agl/loop.py line by line so that every arrow on the whiteboard has a line of code."} -->
+
+<p class="lede">In this chapter, we will build the loop from <a href="/agents/03-anatomy-of-a-loop/">Chapter 3</a>
+and read the code that runs it. We will install agl, write a loop with one tool and one check in a dozen
+lines, run it, read its trace, and then read <code>agl/loop.py</code> top to bottom. By the end you will
+have a working agent on your machine and know exactly what each line of it does.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the first shift</h4>
+<p>Reading about a newsroom is not working in one. On the first shift you file a short piece, watch the
+desk route it, read the editor's note, and see your line in the next edition. This chapter is the first
+shift. Everything after it assumes you have done it once.</p>
+</aside>
+
+<h2>Install</h2>
+
+<pre><code class="language-bash">git clone https://github.com/madhudream/agl.git agl
+cd agl
+echo 'AGL_API_KEY=...' &gt; .env                 # your model API key; AGL_BASE_URL for a non-default API
+uv sync                                        # Python 3.12, the OpenAI SDK, pypdf
+uv run pytest -q                               # offline tests with a scripted fake model, under a second</code></pre>
+
+<p>Three environment variables name the models by role: <code>AGL_MODEL</code> (the worker, default
+ChatGPT 5 mini), <code>AGL_MODEL_JUDGE</code> (the judge, default ChatGPT 5) and
+<code>AGL_MODEL_SMART</code> (the specialist, default ChatGPT Astra). Change them freely; Chapter 7 is
+about choosing them by measurement.</p>
+
+<h2>The smallest useful loop</h2>
+
+<pre><code class="language-python">from agl import LLM, Loop, Toolbox, check, default_plugins
+from agl.std_tools import calc, read_file
+
+llm = LLM()                                      # the worker model
+
+loop = Loop(
+    llm,
+    tools=Toolbox(calc, read_file),              # what it can do
+    evaluate=check(lambda a: a.strip().replace(",", "").isdigit() or "reply with only the number"),
+    plugins=default_plugins(),                   # trace to a file, print to the console, cap the budget
+)
+
+result = loop.run("How many lines does agl/loop.py have, multiplied by 7? Reply with only the number.")
+print(result.answer, result.passed, result.run.usage())</code></pre>
+
+<p>Run it with <code>uv run python examples/loop_hello.py</code>. The console plugin prints each step as
+it happens:</p>
+
+<pre class="out">┌─ loop loop [the worker model]  task: 'How many lines does agl/loop.py have, multiplied by 7? Reply with only the number.'
+│  1 llm   7901ms  475+531 tok  $0.00008  → read_file(path="agl/loop.py", start=1, end=1000)
+│    tool read_file ⇒     1 """The loop. This is the whole idea of an agent, in one page. ...
+│  2 llm   1238ms  3970+51 tok  $0.00013  → calc(expression="217 * 7")
+│    tool calc ⇒ 1519
+│  3 llm   1563ms  4022+11 tok  $0.00003  “1519”
+│    evaluate ✓ PASS
+└─ pass in 3 steps, 10705ms, $0.0002</pre>
+
+<p>Read it against the seven boxes. Step 1: the model asks for a tool (Action), the file comes back
+(Result). Step 2: it asks for the calculator; the exact product comes back. Step 3: it answers with no
+tool call, so the answer goes to Evaluate; the check says it is a bare number; Pass. Three model calls,
+two tool calls, one evaluation, a fraction of a cent.</p>
+
+<h2>The state of one run</h2>
+
+<p><strong>Everything about one execution lives in one object.</strong></p>
+
+<pre><code class="language-python">@dataclass
+class Run:
+    name: str
+    task: str
+    model: str
+    id: str                      # 8 hex chars, so traces can be joined
+    messages: list[dict]         # the whole conversation: system, user, assistant, tool, ...
+    step: int = 0                # how many times the model has been called
+    fails: int = 0               # how many times the evaluator said no
+    status: str = "running"      # running | pass | fail | budget | max_steps | error
+    ms: int = 0
+    _usage: list[Usage]          # one entry per model call: tokens, dollars, milliseconds</code></pre>
+
+<p>The <code>messages</code> list is the memory of the run and the prompt of the next call at the same
+time. There is no separate context object. Whatever is in the list is what the model sees.</p>
+
+<h2>The run method, line by line</h2>
+
+<p><strong>Here is the loop. Read it once top to bottom, then come back to each box.</strong> A few
+plugin calls are left out; they are the hooks from <a href="/agents/13-plugins-tracing-and-skills/">Chapter 13</a>
+and change nothing about the control flow.</p>
+
+<pre><code class="language-python">def run(self, task, *, context=None, state=None) -> Result:
+    run = Run(name=self.name, task=task, model=self.llm.model, state=state or {})
+    system = self.system
+    if extra := plugins.system_prompt(run):                 # skills, memory: appended to the system prompt
+        system = f"{system}\n\n{extra}"
+    run.messages = [{"role": "system", "content": system}]
+    if context:
+        run.messages.append({"role": "user", "content": f"Context:\n{context}"})
+    run.messages.append({"role": "user", "content": task})           # ── Prompt
+
+    answer, verdict = "", None
+    try:
+        while run.step < self.max_steps:
+            run.step += 1
+            reply = self.llm.chat(run.messages, tools=self.tools.specs or None)    # ── LLM
+            run.record(reply)
+            run.messages.append(reply.raw_message)
+
+            if reply.tool_calls:                                                  # ── Action → Result
+                results = self._run_tools(run, reply.tool_calls, plugins)
+                for call, result in zip(reply.tool_calls, results, strict=True):
+                    run.messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
+                continue                                                          #    back to LLM
+
+            answer = reply.text                                                   # ── Evaluate
+            verdict = self.evaluate(answer, run) if self.evaluate else {"passed": True, "feedback": ""}
+            if verdict.get("passed"):
+                run.status = "pass"                                               # ── Final Answer
+                break
+            run.fails += 1                                                        # ── Fail
+            if run.fails > self.max_fails:
+                run.status = "fail"
+                break
+            run.messages.append({"role": "user", "content":
+                f"Your answer did not pass review. Feedback: {verdict.get('feedback', '')}\nRevise and answer again."})
+        else:
+            run.status = "max_steps"
+    except BudgetExceeded as exc:
+        run.status, answer = "budget", answer or f"stopped: {exc}"
+    except Exception as exc:
+        run.status, answer = "error", answer or f"error: {type(exc).__name__}: {exc}"
+    run.ms = int((time.perf_counter() - run.t0) * 1000)
+    return Result(answer=answer, run=run, verdict=verdict)</code></pre>
+
+<p>Four things to notice. The <code>continue</code> after tool results is the inner cycle. The
+<code>while</code> with <code>max_steps</code> is the ceiling on it. The user message built from the
+feedback is the outer cycle, and <code>max_fails</code> is its ceiling. The <code>try</code> around
+everything is why the loop never raises to its caller: every exit is a status on a result.</p>
+
+<h2>Reading the trace</h2>
+
+<p><strong>The console is for watching; the trace is for understanding.</strong> The Trace plugin
+appended one JSON line per event to <code>traces/run.jsonl</code>. Two of them:</p>
+
+<pre><code class="language-json">{"kind": "llm", "run": "cf7618aa", "step": 2, "prompt_tokens": 3970, "completion_tokens": 51, "ms": 1238,
+ "cost_usd": 0.00013, "tool_calls": [{"name": "calc", "arguments": {"expression": "217 * 7"}}]}
+{"kind": "tool", "run": "cf7618aa", "step": 2, "name": "calc", "arguments": {"expression": "217 * 7"}, "result": "1519"}</code></pre>
+
+<p>Every problem in Chapter 8 is first seen in a file like this. Get used to opening it. <code>agl viz
+traces/run.jsonl --open</code> turns it into a page you can replay.</p>
+
+<h2>Three knobs you will touch first</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Knob</th><th>Default</th><th>When to change it</th></tr></thead>
+<tbody>
+<tr><td><code>system</code></td><td>"You are a careful agent. Use the tools when they help; when you have the answer, reply with it directly..."</td><td>to say what kind of agent this is and how to answer; keep house rules in skills, not here</td></tr>
+<tr><td><code>max_steps</code></td><td>20</td><td>lower for narrow tasks so a flailing model stops early; raise for long tool-heavy work</td></tr>
+<tr><td><code>max_fails</code></td><td>2</td><td>most fixable fails are fixed on the first retry; a third fail usually means the task or the evaluator is wrong</td></tr>
+</tbody></table></div>
+
+<h2>Priya's first loop</h2>
+
+<p><strong>Priya writes a loop that drafts one chapter of a course from a brief.</strong> No tools: the
+writer only writes. Her evaluator is a function that checks the draft has the sections her site expects
+and sits inside a word range, and returns a sentence naming what is missing. On the first run the draft
+is too long; the loop sends it back with "2,900 words; the range is 1,400 to 2,400" and the second draft
+fits. She has not written a prompt about length. She has written a check, and the loop did the rest.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Run the example. Open the trace and find the llm event of step 2; read its prompt_tokens. Change the
+task so the model has to read a longer file and compare. Set <code>max_steps=2</code> and watch the
+status change. Then remove the evaluator and run again: does the answer still come back as a bare
+number every time?</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why uv?</summary><p>It installs Python and the dependencies in one command and runs
+scripts in the right environment. pip and a virtualenv work too.</p></details>
+<details><summary>Can I use a model without tool calling?</summary><p>You can run a loop with no tools and
+an evaluator, which is a review cycle on text. Tools need a model that returns structured tool calls;
+nearly all current models do.</p></details>
+<details><summary>What is in default_plugins?</summary><p>Trace (every event to a JSONL file), Console
+(one line per step), Budget (stop a run that spends more than a cap). Chapter 13 reads them.</p></details>
+<details><summary>Why does the loop catch all exceptions?</summary><p>Because the caller is often a graph
+that must continue, and because a crash in one tool should be a status to read, not a stack trace that
+ends the night.</p></details>
+<details><summary>Where does the system prompt text come from?</summary><p>A short default in
+<code>agl/loop.py</code>, plus whatever plugins append: skills and memory. Keep it short and put rules
+in skill files, where they are versioned and reused.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>One client, one loop, tools, an evaluator, plugins: a working agent in a dozen lines.</li>
+<li><code>continue</code> after tool results is the inner cycle; the feedback message is the outer one.</li>
+<li>Every exit is a status on a result. The loop never raises to its caller.</li>
+<li>The trace is where you will see every problem first. Open it after every run until it is a habit.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> Which line implements the inner cycle, and which implements the outer one?</p>
+<details><summary>Answer</summary><p>The <code>continue</code> after appending tool results sends the loop back to the model (inner); the user message built from the evaluator's feedback does the same after a fail (outer).</p></details></div>
+<div class="q"><p><strong>2.</strong> What happens when max_fails is exceeded?</p>
+<details><summary>Answer</summary><p>The loop stops with status "fail" and returns the last answer, so a stubborn model cannot run up a bill.</p></details></div>
+<div class="q"><p><strong>3.</strong> Priya never wrote a prompt about chapter length. How did the length get fixed?</p>
+<details><summary>Answer</summary><p>Her evaluator returned a sentence naming the word count and the allowed range; the loop appended it as feedback and the model's second draft fit.</p></details></div>
+</section>

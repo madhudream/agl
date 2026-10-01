@@ -1,0 +1,37 @@
+[project]
+name = "agl"
+version = "0.1.0"
+description = "Agentic Graph Loop: a legible loop + graph agent framework (OpenAI SDK against any model API, mem lib memory, plugins, evals)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=1.60",
+    "pypdf>=5.0",
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+agl = "agl.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agl"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008", "E731"]
+
+[tool.ruff.lint.per-file-ignores]
+"agl/viz.py" = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

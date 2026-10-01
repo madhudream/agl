@@ -1,0 +1,111 @@
+<!--meta {"title": "A book is a folder", "part": "The guide", "minutes": 6, "summary": "What an interactive book is made of, and how to have your own on screen in five minutes."} -->
+
+<p class="lede">In this chapter, we will learn what an interactive book on this shelf is made of. We will
+create a new book with one command and open it in a browser. You need a text editor and Python 3. You do
+not need a framework, a package manager or a database.</p>
+
+<aside class="note analogy">
+<h4>The analogy: a ring binder</h4>
+<p>A ring binder has a cover, dividers and loose pages. To add a chapter you write a page and put it in
+the right place. Nobody has to rebuild the binder. A book here is the same. The cover is one small file.
+Each chapter is one page of HTML. The engine is the binder: it holds the pages, numbers them and adds the
+table of contents.</p>
+</aside>
+
+<h2>What is in the folder</h2>
+
+<p><strong>A book is a folder with one settings file, a folder of chapters and a folder of
+interactives.</strong></p>
+
+<pre class="diagram">books/
+  my-book/
+    book.json                     the cover: title, subtitle, accent colour, which scripts to load
+    chapters/
+      01-the-first-idea.html      one chapter = one file; the number in the name is the order
+      02-the-second-idea.html
+    assets/
+      widgets-my-book.js          your interactives (optional)
+engine/                           the binder: you never edit it to write a book
+  build.py                        folders in, static site out
+  assets/book.css  book.js  widgets-core.js</pre>
+
+<h2>Make your first book</h2>
+
+<p><strong>One command creates a book with two starter chapters and one working interactive.</strong></p>
+
+<pre><code class="language-bash">python3 engine/new_book.py gardening "Gardening: Seed to Harvest"
+python3 engine/build.py --check
+python3 -m http.server 8000 -d dist</code></pre>
+
+<p>Open <code>http://localhost:8000</code>. Your book is on the shelf. Edit a chapter, build again, reload
+the page.</p>
+
+<h2>The cover: book.json</h2>
+
+<p><strong><code>book.json</code> tells the engine how to present the book.</strong> Only
+<code>title</code> is required.</p>
+
+<pre><code class="language-json">{
+  "title": "Gardening: Seed to Harvest",
+  "short": "Gardening",
+  "eyebrow": "An interactive book",
+  "subtitle": "One sentence that tells a stranger why to read this.",
+  "order": 5,
+  "hue": 130,
+  "scripts": ["widgets-gardening.js"],
+  "links": [{"label": "Planting calendar", "chapter": "07-the-calendar"}],
+  "how": ["&lt;b&gt;In order.&lt;/b&gt; Each chapter uses only what came before."],
+  "parts": {"Part I · Soil": "A line shown under the part's name on the cover."}
+}</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Key</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>title</code></td><td>Text before a colon is the first line of the cover. Text after it is the second, coloured line.</td></tr>
+<tr><td><code>short</code></td><td>The name shown in the top bar next to the shelf's name.</td></tr>
+<tr><td><code>order</code>, <code>hue</code></td><td>Position on the shelf, and the colour of the spine (0 to 360).</td></tr>
+<tr><td><code>scripts</code></td><td>Files in <code>assets/</code> to load, in order. Data files first, widgets after.</td></tr>
+<tr><td><code>links</code></td><td>Up to two chapters pinned in the top bar. The first also becomes a button on the cover.</td></tr>
+<tr><td><code>accent</code></td><td>The book's own accent colour, for light and dark mode. This guide is blue, the memory book is orange.</td></tr>
+<tr><td><code>replace</code></td><td>Words to swap in prose only, never in code. Useful when a product is renamed.</td></tr>
+<tr><td><code>hidden</code></td><td><code>true</code> keeps a draft off the shelf. It is still built and reachable by its address.</td></tr>
+</tbody></table></div>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Here is a working interactive from this guide's own <code>assets</code> folder. You will write one like
+it in <a href="/03-making-an-interactive/">Chapter 3</a>. Before you move anything, guess: what do two
+cups a day cost over ten years?</p>
+<div class="widget" data-widget="coffee-cost"></div>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Do I need to know JavaScript?</summary>
+<p>Not to write a book. Chapters are HTML, and a book with no interactives at all is fine. You need a
+little JavaScript to make your own sliders, and Chapter 3 gives you a pattern of about 25 lines to
+copy.</p></details>
+<details><summary>Can I write in Markdown?</summary>
+<p>The engine reads HTML fragments, because interactives, notes and folded answers need real tags. If you
+draft in Markdown, convert it once and then edit the HTML.</p></details>
+<details><summary>Where does the reader's progress live?</summary>
+<p>In the reader's own browser. Nothing is sent to a server. Each book has its own list of chapters
+read.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>A book is a folder: <code>book.json</code>, <code>chapters/</code>, <code>assets/</code>.</li>
+<li>The file name sets the order: <code>01-</code>, <code>02-</code>, and so on.</li>
+<li><code>python3 engine/build.py --check</code> builds every book and tells you what is broken.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> You want a new chapter between chapters 2 and 3. What do you do?</p>
+<details><summary>Answer</summary><p>Rename the files from 03 onwards to 04 onwards and name the new file
+<code>03-...</code>. The order comes from the file names. Links to the renamed chapters must be updated,
+and the check tells you which ones are dead.</p></details></div>
+</section>

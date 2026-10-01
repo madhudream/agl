@@ -1,0 +1,220 @@
+<!--meta {"title": "Evaluators", "part": "Part II · Building loops", "minutes": 11, "summary": "The box that makes a loop a loop: deterministic checks, model judges with rubrics, cheap checks before expensive ones, feedback written for the model, and why the judge must never be the worker."} -->
+
+<p class="lede">In this chapter, we will learn the Evaluate box, the one arrow on the whiteboard that
+points backwards. We will build the three evaluators agl ships, <code>check</code>, <code>judge</code> and
+<code>all_of</code>, learn to write feedback the model can act on, see why a rubric is code and must be
+tested like code, and learn the one rule that keeps judges honest: the judge is never the model that wrote
+the answer. By the end you will know when a regex is enough, when you need a second model, and how to
+order them.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the editor's desk</h4>
+<p>Copy does not go from the reporter to the press. It goes to an editor. Some of what the editor does is
+mechanical: is the byline there, is it under the word count, are the names spelled right. A checklist
+does that, and a junior runs it in a minute. Some needs judgment: does the piece hold together, is the
+claim supported. That takes a senior reader. Good desks run the checklist first, so the senior reader never
+wastes time on copy with a missing byline. And the editor is never the person who wrote the piece.</p>
+</aside>
+
+<h2>What an evaluator is</h2>
+
+<p><strong>An evaluator is a function that takes the model's answer and returns a verdict: passed or not,
+with feedback and an optional score.</strong></p>
+
+<pre><code class="language-python">Verdict = dict        # {"passed": bool, "feedback": str, "score": float | None}
+Evaluator = Callable[[str, Run], Verdict]</code></pre>
+
+<p>The loop calls it only when the model has stopped calling tools and produced a reply. Pass means that
+reply is the final answer. Fail means the loop appends "Your answer did not pass review. Feedback: ...
+Revise and answer again" and goes round once more, up to <code>max_fails</code> times. The feedback
+string is the whole value of a fail: a fail without a reason sends the model round blind.</p>
+
+<h2>check: deterministic, free, honest</h2>
+
+<p><strong>Use <code>check</code> whenever the answer has a shape you can test in code.</strong></p>
+
+<pre><code class="language-python">def check(fn, feedback="answer failed the check"):
+    """fn returns True (pass), False (fail) or a str (fail with that feedback)."""
+    def evaluate(answer, run):
+        r = fn(answer)
+        if r is True:
+            return {"passed": True, "feedback": "", "score": 1.0}
+        return {"passed": False, "feedback": r if isinstance(r, str) else feedback, "score": 0.0}
+    return evaluate</code></pre>
+
+<p>Three idioms cover most of what you will need:</p>
+
+<pre><code class="language-python"># a shape
+check(lambda a: a.strip().isdigit() or "reply with only the number")
+
+# a count, with the number in the feedback
+def outline_ok(answer):
+    n = len(parse_json(answer)["chapters"])
+    return True if n == 3 else f"the plan has {n} chapters; it must have exactly 3"
+check(outline_ok)
+
+# a contract with many clauses, each a precise complaint
+check(validate_chapter)      # returns "Fix these and resend the whole chapter: <rule>; <rule>"
+
+# the strongest evaluator there is: run the real tests or the real build
+check(lambda a: run_tests() or "tests failed: " + last_failure())</code></pre>
+
+<h2>Write the feedback for the model</h2>
+
+<p><strong>Feedback is a prompt. The model reads it and acts.</strong> "the plan has 1 chapters; it must
+have exactly 3" produces a three-chapter plan on the next turn. "answer failed the check" produces a
+guess. Three rules for feedback that works:</p>
+
+<pre class="diagram">name the fact       "2,900 words"           not "too long"
+name the target     "the range is 1,400 to 2,400"
+say what to do      "resend the whole chapter"   not "please fix"</pre>
+
+<p>When a validator has many rules, return all the failures in one message. A model that gets one
+complaint per round takes five rounds; a model that gets five complaints fixes them in one.</p>
+
+<h2>judge: a second model with a rubric</h2>
+
+<p><strong>Use <code>judge</code> when the answer is prose, a plan, a chapter: anything without a
+testable shape.</strong></p>
+
+<pre><code class="language-python">def judge(llm, rubric, threshold=0.7, model=None):
+    def evaluate(answer, run):
+        prompt = (f"You are a strict reviewer.\n\nTask:\n{run.task}\n\nAnswer:\n{answer}\n\n"
+                  f"Rubric:\n{rubric}\n\nReply with JSON only: "
+                  '{"score": <0..1>, "passed": <true|false>, "feedback": "<what to fix>"}')
+        reply = llm.chat([{"role": "user", "content": prompt}], json_mode=True, model=model, temperature=0)
+        v = parse_json(reply.text)
+        score = float(v.get("score", 0))
+        return {"passed": bool(v.get("passed", score >= threshold)) and score >= threshold,
+                "feedback": str(v.get("feedback", "")), "score": score}
+    return evaluate</code></pre>
+
+<p>Three decisions hide in those lines. Temperature zero, so the same answer gets the same verdict as
+often as a model allows. JSON mode, so the verdict parses. And a <code>model</code> argument, so the judge
+runs on a different model from the worker.</p>
+
+<h2>The judge is not the worker</h2>
+
+<p><strong>A model grading its own prose shares its blind spots, and a rubric that changes between runs
+makes scores incomparable.</strong> So two rules. The judge runs on a different model, named by
+<code>AGL_MODEL_JUDGE</code>. And once you start comparing runs, the judge model and the rubric are frozen;
+changing either means starting the comparison again.</p>
+
+<h2>Rubrics are code</h2>
+
+<p><strong>The judge is a literal reader. A rubric that says "one concrete example" will fail an article
+for having two.</strong> This is the most common evaluator bug and the easiest to miss, because the
+score looks like a judgment and the feedback looks like an opinion. It is neither: it is the rubric being
+applied exactly as written. Two habits prevent it.</p>
+
+<pre class="diagram">test the rubric     run the judge on three answers you have already graded yourself; if its verdicts differ from yours,
+                    the rubric is wrong, not the answers
+say what you mean   "at least one concrete example"; "judge the whole, do not fail it for one clause";
+                    "a number without a source is a fail" (if that is what you mean)</pre>
+
+<p>Read the feedback, not the score. A judge that fails the same answer three times with the same
+feedback is telling you what its rubric says. Fix the rubric with as few words as possible, and keep the
+old wording in version control so you know what changed.</p>
+
+<h2>all_of: cheap checks first</h2>
+
+<p><strong><code>all_of</code> runs evaluators in order and stops at the first fail, so the judge only
+reads answers that passed the checks.</strong></p>
+
+<pre><code class="language-python">def all_of(*evaluators):
+    def evaluate(answer, run):
+        scores = []
+        for ev in evaluators:
+            v = ev(answer, run)
+            if not v.get("passed"):
+                return v                      # the first fail wins; nothing after it runs
+            scores.append(v.get("score") or 1.0)
+        return {"passed": True, "feedback": "", "score": sum(scores) / len(scores)}
+    return evaluate
+
+evaluate = all_of(check(validate_chapter),                                       # free
+                  judge(llm, CONTENT_RUBRIC, threshold=0.7, model=JUDGE_MODEL))  # one call, only for chapters that passed</code></pre>
+
+<p>In a chapter-writing loop with this evaluator, a chapter with a missing section never reaches the
+judge; the checklist bounces it for free. A chapter that reads the source wrongly passes the checklist
+and is caught by the judge. Each fail is specific, and the judge is paid for only when it can add
+something a regex cannot.</p>
+
+<h2>What a fail looks like to the model</h2>
+
+<pre class="chat">user:       How many lines does agl/loop.py have, times 7? Reply with only the number.
+assistant:  The file has 217 lines, so the answer is 1519.
+user:       Your answer did not pass review. Feedback: reply with only the number
+            Revise and answer again.
+assistant:  1519</pre>
+
+<p>Nothing clever. One message was added and the model was called again. It has seen its own earlier
+answer and the complaint, which is all it needs.</p>
+
+<h2>Choosing an evaluator</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>The answer is</th><th>Use</th><th>Cost</th><th>Watch out</th></tr></thead>
+<tbody>
+<tr><td>a number, a path, a JSON shape, a list</td><td><code>check</code> with a regex or a parse</td><td>none</td><td>write the feedback for the model</td></tr>
+<tr><td>a document with a structure</td><td><code>check</code> with a validator returning all complaints at once</td><td>none</td><td>pin the labels you need exactly</td></tr>
+<tr><td>something a program can run</td><td><code>check</code> that runs tests or a build</td><td>compute</td><td>the strongest there is; use it when you can</td></tr>
+<tr><td>prose, a plan, a chapter</td><td><code>judge</code> on a different model</td><td>one call</td><td>rubric wording; temperature 0; freeze it during comparisons</td></tr>
+<tr><td>both</td><td><code>all_of(check, judge)</code></td><td>one call, only after the checks pass</td><td>order matters</td></tr>
+</tbody></table></div>
+
+<h2>Priya's evaluators</h2>
+
+<p><strong>Priya's chapter writer gets <code>all_of</code>: her checklist, then a content judge.</strong>
+Her checklist pins the chapter title and part label to the outline's exact strings, because a writer left
+alone drifts into "(Part I)" suffixes. Her content rubric says "every claim agrees with the source material
+in the task; definitions are not inverted; nothing is invented". She tests the rubric on three chapters
+she graded herself before trusting it, and finds the first draft of it too strict about length, which
+the checklist already handles. She removes the length clause from the rubric: one job per evaluator.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Write a rubric for "a good commit message" in three sentences. Give it to <code>judge</code> and run it
+on five real commit messages from any repository. Read the feedback. Change one word in the rubric and run
+again. Count how many verdicts changed. That number is how much your rubric is code.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why not let the worker grade itself? It is cheaper.</summary><p>It shares its own blind
+spots, and it is inclined to say its answer is fine. A second model with a fixed rubric is the cheapest
+independent reader you can buy.</p></details>
+<details><summary>Is a threshold of 0.7 right?</summary><p>It is a starting point. Judge scores cluster;
+look at the scores on answers you have read yourself and put the line where your own verdicts flip.</p></details>
+<details><summary>What if the judge returns something that is not JSON?</summary><p>The verdict is a fail
+with feedback "judge returned unparseable output". JSON mode makes this rare, and the parser strips code
+fences and prose around the object first.</p></details>
+<details><summary>Can the evaluator see the tools the model used?</summary><p>Yes. It receives the run,
+which holds the whole history. An evaluator can fail an answer because the model never ran the tests.</p></details>
+<details><summary>How many retries?</summary><p>Two by default. Most fixable fails are fixed on the first
+retry; a third usually means the task or the rubric is wrong.</p></details>
+<details><summary>Should evaluators be strict or lenient?</summary><p>Strict on shape, measured on
+content. A shape check that lets a malformed answer through wastes the judge's call; a judge that fails
+good answers for a clause you did not mean wastes retries. Test both on answers you graded yourself.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>An evaluator returns passed, feedback and a score. The feedback is for the model: name the fact, the target, the action.</li>
+<li><code>check</code> for anything with a testable shape; running the real tests is the strongest check there is.</li>
+<li><code>judge</code> for prose, on a different model, at temperature 0, with a rubric tested on answers you graded.</li>
+<li><code>all_of(check, judge)</code>: cheap checks first, so the judge only reads what passed.</li>
+<li>Rubrics are code. Read the feedback, not the score, to find their bugs.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> What happens in the loop when an evaluator returns passed: false?</p>
+<details><summary>Answer</summary><p>The loop appends a user message with the feedback and asks the model to revise, then calls it again; after max_fails fails it stops with status "fail".</p></details></div>
+<div class="q"><p><strong>2.</strong> Why should the judge run on a different model from the worker?</p>
+<details><summary>Answer</summary><p>A model grading its own output shares its blind spots; a second model with a fixed rubric is an independent reader, and freezing it keeps runs comparable.</p></details></div>
+<div class="q"><p><strong>3.</strong> A judge fails the same good answer three times with the same feedback. What is wrong?</p>
+<details><summary>Answer</summary><p>The rubric. The judge is applying it literally; fix the wording with as few words as possible and test it on answers you have graded yourself.</p></details></div>
+</section>

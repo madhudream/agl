@@ -1,0 +1,7 @@
+dist/
+shots/
+.git/
+tools/
+books/*/examples/
+.DS_Store
+__pycache__/

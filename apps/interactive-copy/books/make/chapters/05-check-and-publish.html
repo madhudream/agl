@@ -1,0 +1,74 @@
+<!--meta {"title": "Check and publish", "part": "The guide", "minutes": 5, "summary": "Two commands that catch what you cannot see, and how a finished book reaches the shelf."} -->
+
+<p class="lede">In this chapter, we will learn how to check a book before anyone reads it, and how it gets
+onto the shelf. There are two checks. The first reads your files. The second opens every page in a real
+browser and uses it.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the proof copy</h4>
+<p>Before a printer makes ten thousand copies of a book, it makes one. Someone turns every page of that
+one copy. It is slow, it is dull, and it has saved many authors from a missing chapter.</p>
+</aside>
+
+<h2>Check 1: the files</h2>
+
+<pre><code class="language-bash">python3 engine/build.py --check</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>It reports</th><th>Usual cause</th></tr></thead>
+<tbody>
+<tr><td>meta is not valid JSON</td><td>A missing quote or a comma after the last entry</td></tr>
+<tr><td>unknown widget</td><td>A typing mistake in <code>data-widget</code>, or the script is not listed in <code>book.json</code></td></tr>
+<tr><td>dead link</td><td>A chapter was renamed</td></tr>
+<tr><td>a tag opened 3 times, closed 2</td><td>A missing <code>&lt;/details&gt;</code> or <code>&lt;/section&gt;</code></td></tr>
+</tbody></table></div>
+
+<h2>Check 2: the pages</h2>
+
+<pre><code class="language-bash">node tools/smoke.mjs            # every page, every control
+node tools/smoke.mjs --shots    # and a picture of every page, wide and phone-sized</code></pre>
+
+<p><strong>The smoke test opens each page in Chrome without a window and behaves like a careless
+reader.</strong> It drags every slider to both ends, presses every button twice and types into every text
+field. It fails if the browser reports an error, if an interactive did not start, if "NaN" appears on
+screen, or if the page scrolls sideways at the width of a phone.</p>
+
+<p>Then look at the pictures yourself. A machine can tell that nothing is broken. Only a person can tell
+that a label sits on top of a line.</p>
+
+<h2>Publish</h2>
+
+<p><strong>The whole shelf is one folder of static files.</strong> Any web server can host it.</p>
+
+<pre><code class="language-bash">./deploy.sh --preview     # build, check, test, then serve on http://localhost:8000
+./deploy.sh               # build, check, test, then deploy the container</code></pre>
+
+<p>To offer a book for this shelf, send the book's folder. Nothing outside <code>books/your-book/</code>
+needs to change, so a new book cannot break an existing one.</p>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>My book is not finished. Can I still publish?</summary>
+<p>Set <code>"hidden": true</code> in <code>book.json</code>. The book is built and you can share its
+address, but it does not appear on the shelf.</p></details>
+<details><summary>Can I host my book somewhere else?</summary>
+<p>Yes. Copy the <code>engine</code> folder and your book's folder, build, and upload <code>dist</code> to
+any static host.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li><code>build.py --check</code> reads the files. <code>smoke.mjs</code> uses the pages.</li>
+<li>Look at the pictures. Machines find errors, people find ugliness.</li>
+<li>A book lives in its own folder, so it cannot break another book.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> The file check passes and the smoke test fails with "scrolls sideways
+by 140px". Where do you look first?</p>
+<details><summary>Answer</summary><p>For a table without its <code>table-wrap</code>, or a long line in a
+block of fixed text. Those are the two things that are wider than a phone.</p></details></div>
+</section>

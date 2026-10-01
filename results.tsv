@@ -1,0 +1,11 @@
+commit	model	score	pass_rate	cost_usd	tokens_mean	ms_p50	status	description
+1f1812b	qwen/qwen3.7-flash	97.8	100.0	0.0026	3783	6797	keep	baseline (loop tasks only)
+1b22521	qwen/qwen3.7-flash	97.8	100.0	0.0022	3744	5297	keep	exp 0001: AGL_REASONING=low
+1b22521	qwen/qwen3.7-flash	0.0	0.0	0.0	0	0	crash	exp 0002: AGL_REASONING=none (provider: reasoning is mandatory; client now drops the knob and retries)
+df75b8b	qwen/qwen3.7-flash	100.0	100.0	0.0049	26092	109614	keep	graph task baseline (default reasoning)
+f074fa6	qwen/qwen3.7-flash	100.0	100.0	0.0035	25027	116178	keep	exp 0003: graph task, AGL_REASONING=low
+e128fd3	qwen/qwen3.7-flash	90.0	91.7	0.0102	10452	7828	keep	baseline v2: 12 tasks, reasoning=low default
+6462dcc	qwen/qwen3.7-flash	90.0	91.7	0.0076	6734	5971	keep	exp 0004: parallel tool calls within one step
+92177d3	qwen/qwen3.7-flash	98.3	100.0	0.0086	6792	4923	keep	baseline v3: 12 tasks, grep file-path fix, count-defs on frozen fixture
+3cbee84	deepseek/deepseek-v4.1-flash	98.3	100.0	0.021	5084	2982	discard	exp 0005: worker = deepseek/deepseek-v4.1-flash
+3cbee84	qwen/qwen3.7-flash	-	3/3	0.0237	-	207480	keep	course_builder v4: grounded + word target + content judge (gemini flash); build.py --check ok

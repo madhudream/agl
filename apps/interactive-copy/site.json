@@ -1,0 +1,16 @@
+{
+  "name": "Carebun Interactive",
+  "domain": "interactive.carebun.com",
+  "eyebrow": "Books you read with your hands",
+  "headline": ["Learn it", "by moving it"],
+  "tagline": "Interactive books, from novice to ninja",
+  "tagline_long": "Textbooks written in plain language, where every number can be moved and every idea can be tried on the page. Pick a book and start at chapter one.",
+  "principles": [
+    "<b>Plain words.</b> Every term is explained the first time it appears, with one analogy that runs through the whole book.",
+    "<b>Numbers you can move.</b> Every calculation is shown step by step, and a slider sits next to it.",
+    "<b>Real output.</b> Experiments are run, and what they printed is shown, including what went wrong.",
+    "<b>Recall beats re-reading.</b> Every chapter ends with questions and folded answers.",
+    "<b>Anyone can write one.</b> A book is a folder of chapters. <a href=\"/make/\">The guide is itself a book on this shelf.</a>"
+  ],
+  "credits": "Built with the Carebun Interactive engine: plain HTML chapters, a small widget runtime, no framework."
+}

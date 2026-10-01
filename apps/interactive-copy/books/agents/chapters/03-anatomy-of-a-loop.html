@@ -1,0 +1,156 @@
+<!--meta {"title": "Anatomy of a loop", "part": "Part I · Foundations", "minutes": 10, "summary": "The seven boxes on the whiteboard, the two cycles hidden in them, how a loop ends, and a step-through of one real run where you can watch the prompt grow."} -->
+
+<p class="lede">In this chapter, we will learn what happens inside a loop, box by box, before we write
+one. The whiteboard's loop board has seven boxes. We will see that they hide two cycles, not one; name
+the five ways a loop can end; and step through a recorded run to watch the single most important number
+in agent engineering, the size of the prompt, grow as tool results come back. By the end you will be able
+to draw the loop from memory and explain each arrow.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the reporter's day</h4>
+<p>The brief arrives (Prompt). The reporter thinks about what to do (LLM). She makes a call or opens a
+file (Action) and writes down what she learned (Result). She thinks again with the new notes in front
+of her. When she has an answer she takes it to the desk (Evaluate). The editor says run it (Pass) or
+sends it back with a note (Fail). Round again until it runs. Nothing in the loop is cleverer than that.</p>
+</aside>
+
+<h2>The seven boxes</h2>
+
+<pre class="diagram">Prompt ──► LLM ──► Action ──► Result ──┐
+           ▲                           │
+           │                           ▼
+           └──── Fail ◄── Evaluate ──► Pass ──► Final Answer</pre>
+
+<p><strong>The loop has two cycles.</strong> The inner cycle is LLM, Action, Result, LLM: the model calls
+tools until it is ready to answer. The outer cycle is Evaluate, Fail, LLM: an answer that does not pass
+goes back as feedback. Most frameworks only draw the inner cycle. The whiteboard draws both, and the
+outer one is what makes a loop trustworthy, because it is the only place where something other than the
+model decides.</p>
+
+<h3>Prompt</h3>
+
+<p>Three messages at most: a system prompt (what kind of agent this is, plus standing instructions),
+an optional context message (a document, a file, a block of remembered facts), and the task. Keep the
+task separate from the context: evaluators and logs want to read the task without forty pages of
+context around it.</p>
+
+<h3>LLM</h3>
+
+<p>One call. The whole message history goes in, along with the schemas of the tools the model may call.
+The reply is either text or one or more tool calls. The model has no memory between calls; each call is a
+fresh reading of the whole list. This is why the history is both the memory of the run and the prompt of
+the next step, and why everything a tool returns is paid for again on every later call.</p>
+
+<h3>Action and Result</h3>
+
+<p>If the model asked for tools, each one runs and its result goes back into the history as a message
+with the role "tool". Then the loop goes straight back to LLM. The model now sees what happened and
+decides again. A tool that fails returns its error as text, so the model can read it and correct itself;
+a tool that raised an exception would end the day instead.</p>
+
+<h3>Evaluate</h3>
+
+<p>A reply with no tool calls is a candidate answer. It goes to the evaluator: a function that returns
+pass or fail, with feedback. The evaluator can be a regex, a parser, a test suite, a build, or a second
+model reading a rubric. The one thing it must not be is the worker model's own opinion of itself.</p>
+
+<h3>Pass, Fail, Final Answer</h3>
+
+<p>Pass ends the loop; the answer is final. Fail appends the feedback as a new message and goes back to
+LLM, so the model sees its own earlier answer and the complaint side by side. After a small number of
+fails the loop gives up and says so.</p>
+
+<h2>Five ways a loop ends</h2>
+
+<pre class="diagram">pass        the evaluator accepted an answer                      the good exit
+fail        the evaluator rejected one answer too many             the task or the rubric is wrong; read the feedback
+max_steps   the model kept calling tools for too many turns        it is flailing; read the trace
+budget      a cost or step cap stopped the run                     a safety net, not a plan
+error       something raised that was not the model's fault        a bug in a tool or the harness</pre>
+
+<p>Every exit returns a result object with the answer so far and the status. A well-built loop never
+raises to its caller, because the caller is often another loop or a graph that must carry on.</p>
+
+<h2>Step through a real run</h2>
+
+<p><strong>The simulator below replays one recorded run: three model calls, two tool calls, one
+evaluation.</strong> The tokens, milliseconds and dollars are from the run's trace. Press Step and watch
+the prompt tokens.</p>
+
+<div class="widget" data-widget="loop-sim"></div>
+
+<p>The jump from a few hundred to a few thousand prompt tokens between the first and second call is the
+number to remember. The file the tool returned is now in the history, and it is sent again on every call
+until the run ends. Tool results are not free, and the cost arrives later, not when they come back.</p>
+
+<pre class="calc">call 1   475 prompt tokens      the task and two tool schemas
+call 2   3,970 prompt tokens    call 1 + the tool call + 217 numbered lines of a file
+call 3   4,022 prompt tokens    call 2 + the arithmetic call + its one-line result
+total    8,467 prompt tokens, 593 completion tokens, about ten seconds</pre>
+
+<h2>Switch the evaluator</h2>
+
+<p>In the simulator, change the evaluator from the deterministic check to none, then to a judge. With
+none, the loop ends at the first answer whatever it is. With a judge, one more model call reads the
+answer against a rubric and roughly doubles the cost of this small run. That tension, free and strict
+against expensive and flexible, is the subject of <a href="/agents/06-evaluators/">Chapter 6</a>.</p>
+
+<h2>What is deliberately not in the loop</h2>
+
+<p><strong>No planning step, no memory of its own, no retries of model calls, no streaming.</strong>
+Planning happens inside the model's reply for simple tasks, and as a node in a graph for complex ones.
+Memory is a plugin that adds to the prompt and listens to the result. Retries live in the client. These
+are decisions, and the next chapter's code is short enough that you can disagree with any of them.</p>
+
+<h2>Priya draws her loop</h2>
+
+<p><strong>Before she writes code, Priya draws the seven boxes for one chapter of a course.</strong>
+Prompt: the chapter brief and the house style. Tools: none for the writer (it writes), a file reader for
+the researcher. Evaluate: a checklist of required sections and a word range. Fail: the checklist's
+complaint goes back to the writer. She notices that she has drawn two different loops, a researcher and a
+writer, and that one feeds the other. That is a graph, and it is Part III. For now she builds the writer.</p>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Draw the seven boxes for a task you do often. Under Evaluate, write the cheapest check a program could
+run. Under Fail, write the feedback sentence the model would need. If you cannot write that sentence, you
+have found the hard part of your agent before writing any code.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why is the whole conversation resent on every call?</summary><p>Because the model has
+no memory between calls. Each call is a fresh reading of the whole list. That is also why context
+engineering matters: everything the model will ever know in this run is in that list.</p></details>
+<details><summary>Where is the planning step?</summary><p>There is none in the loop. For simple tasks the
+model plans inside its reply. For tasks with a known structure, planning is a node in a graph.</p></details>
+<details><summary>What stops a model that calls tools forever?</summary><p>A step cap ends the run with
+status max_steps, and a budget plugin stops a run that spends too much. Both are safety nets; a run that
+hits them is a run to read in the trace.</p></details>
+<details><summary>Why append the feedback as a user message instead of changing the system prompt?</summary><p>Because
+the model needs to see its earlier answer next to the complaint. The history already holds the answer;
+one more user turn is the smallest change that gives the model everything it needs.</p></details>
+<details><summary>Can a loop run another loop?</summary><p>Yes, two ways. A tool can start one (a
+delegate). Or a loop can be a node in a graph, which is how Part III builds graphs out of loops.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Two cycles: tools until an answer, feedback until a pass.</li>
+<li>The history is the memory of the run and the prompt of the next call. Tool results are paid for on every later call.</li>
+<li>No tool calls means a candidate answer; the evaluator decides if it is final.</li>
+<li>Five exits, each a status; a loop never raises to its caller.</li>
+<li>No planner, no memory, no retries inside the loop. Each lives somewhere else, on purpose.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> What tells the loop that a reply is a candidate answer rather than a request for tools?</p>
+<details><summary>Answer</summary><p>The reply has no tool calls. If it has tool calls, the loop runs them, appends the results and calls the model again.</p></details></div>
+<div class="q"><p><strong>2.</strong> Why did the second call in the recorded run cost 3,970 prompt tokens when the first cost 475?</p>
+<details><summary>Answer</summary><p>The 217 lines the file tool returned were appended to the history, and the whole history is sent on every call.</p></details></div>
+<div class="q"><p><strong>3.</strong> List the five statuses a run can end with.</p>
+<details><summary>Answer</summary><p>pass, fail, max_steps, budget, error.</p></details></div>
+</section>

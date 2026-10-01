@@ -33,6 +33,10 @@
     {
       "label": "pattern catalogue",
       "chapter": "09-why-graphs"
+    },
+    {
+      "label": "glossary",
+      "chapter": "19-the-words-by-analogy"
     }
   ],
   "brand": {
@@ -56,7 +60,8 @@
     "Part II \u00b7 Building loops": "Your first loop, tools, evaluators, models and cost, and the problems every loop hits.",
     "Part III \u00b7 Building graphs": "Why graphs, how the engine runs them, how to draw and design one, and the problems graphs hit.",
     "Part IV \u00b7 Around the loop": "Plugins and tracing, memory, and the exam that keeps your agent honest.",
-    "Part V \u00b7 Real world": "A full case study, five problems mapped to five graphs, and shipping."
+    "Part V \u00b7 Real world": "A full case study, five problems mapped to five graphs, and shipping.",
+    "Appendix": "Every term in the book, explained by analogy."
   },
   "credits": "The whiteboard this book follows was drawn for a class on loop engineering and graph engineering. Ideas borrowed with thanks from Sean Chen's Waku Agent, Andrej Karpathy's autoresearch, and the plugin harnesses and coding agents of 2026."
 }

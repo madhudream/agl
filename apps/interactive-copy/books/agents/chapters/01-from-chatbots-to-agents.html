@@ -78,7 +78,9 @@ rung 3   SKILLS                standing instructions, "how we do this here", in 
 rung 2   CONTEXT engineering   put the right facts and documents in front of the model
 rung 1   PROMPT engineering    phrase the question well</pre>
 
-<p>Rung 1 is where everyone starts: "explain like I am five" and "answer in JSON" change the output. Rung
+<p>Rung 1 is where everyone starts: "explain like I am five" and "answer in JSON" change the output (JSON
+is the bracketed text format programs use to pass data to each other; asking for it means asking for an
+answer a program can read, not a paragraph). Rung
 2 is the discovery that the model is only as good as what it can see, so you paste in the document, the
 error log, the schema. Rung 3 is writing down how your team wants things done, once, in a file the agent
 reads every time. Rung 4 is the jump: instead of asking once, you let the model act, look at what
@@ -122,6 +124,14 @@ agl/plugins.py   hooks around the loop: trace, console, budget, skills          
 agl/memory.py    long-term memory behind a small backend interface; mem lib ships     (Part IV)
 agl/eval.py      the exam you write for your own agent                                 (Part IV)
 agl/viz.py       draw a graph as Mermaid or excalidraw; replay a run                    (Part III)</pre>
+
+<p>A few words in that table will be new. A <em>token</em> is the unit a model reads and writes in: a piece
+of a word, about four characters on average, so 'graph engineering' is about four tokens. Models are
+billed per token, which makes tokens the newsroom's column inches: the paper pays for every one, whether
+it carries news or filler. The <em>OpenAI SDK</em> is the official Python library for talking to a model
+over the network, the way a phone app talks to the phone network, and a <em>model API</em> is the service
+on the other end that runs the model. A <em>cache</em> is a saved copy of an answer so the same question is
+not paid for twice.</p>
 
 <p>Why so small? Because you have to read it, and because every line we did not write is a line that
 cannot hide a bug. When a chapter names a file, open it next to the page. Every example in the book is

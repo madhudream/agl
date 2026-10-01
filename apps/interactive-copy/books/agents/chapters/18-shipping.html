@@ -27,9 +27,11 @@ POST /graph  {"name": "triage", "state": {"message": "..."}}
              -> the final state: every key the nodes wrote, plus _path, _ms and errors
 GET  /graphs -> [{"name", "nodes", "edges"}]       GET /health -> {"ok": true, "meter": {...}}</code></pre>
 
-<p>A web app, a worker, a mobile backend in any language posts JSON and gets JSON. <code>user_id</code>
-turns on memory for that id. Every call is traced to one file. Bind to localhost and put your application's
-own authentication and rate limits in front; the service is the engine, not the front door. For a
+<p>(<em>HTTP</em> is the web's request language: a POST sends a document to a service, a GET asks for one;
+a service listening at an address is an <em>endpoint</em>.) A web app, a worker, a mobile backend in any
+language posts JSON and gets JSON. <code>user_id</code>
+turns on memory for that id. Every call is traced to one file. Bind to localhost (answer only to programs on the same machine) and put your application's own
+authentication and rate limits in front; the service is the engine, not the front door. For a
 different language, the engine is also small enough to port: the graph is three hundred lines and the
 parallel wave is a thread pool.</p>
 

@@ -110,7 +110,14 @@ refuses it, so a setting can never crash a run.</p>
 <h3>Caching</h3>
 
 <p>With <code>AGL_CACHE</code> set, the client keys each call by a hash of its model, messages and
-parameters and stores the response in SQLite. An identical rerun is free and gives identical answers,
+parameters (a hash is a short fingerprint computed from the exact contents: change one character and the
+fingerprint changes) and stores the response in SQLite (a database that lives in one ordinary file, with
+no server to run).
+
+<aside class="note tip">
+<h4>Word: cache</h4>
+<p>A <em>cache</em> is a saved copy of an answer, filed under a fingerprint of the question, so the same question is answered from the file instead of being asked again. The archive keeps yesterday's clippings so nobody re-reports a story that already ran. A cache is only honest when the question is exactly the same; change one word and it must miss.</p>
+</aside> An identical rerun is free and gives identical answers,
 which is how you tell a code change from model noise. A change to any prompt misses the cache for that
 call and pays; everything else stays free.</p>
 
@@ -133,8 +140,9 @@ stops the whole process. An unattended loop runs inside both.</p>
 
 <h2>Retries and fallbacks</h2>
 
-<p><strong>The client retries rate limits and server errors with backoff and gives up at once on client
-errors, because sending the same bad request again never helps.</strong> One special case: when a model
+<p><strong>The client retries rate limits (the provider saying 'too many requests, slow down') and server
+errors with backoff (waiting a little longer after each refusal, like redialling a busy line with growing
+pauses), and gives up at once on client errors, because sending the same bad request again never helps.</strong> One special case: when a model
 rejects a setting with a 400 that names it, the client drops the setting for that client and retries
 once. The lesson generalises: anything you send that a provider might refuse should have a fallback that
 is not "crash".</p>
@@ -169,8 +177,9 @@ improvement, and run twice when a result is close.</p></details>
 <details><summary>Should I use the specialist for the judge?</summary><p>Often, yes: the judge is called
 less and its mistakes are expensive. The worker is called most and its mistakes are caught by the judge.
 Put the strength where the leverage is.</p></details>
-<details><summary>What about streaming?</summary><p>agl does not stream; it is built for batch work and
-graphs that run in threads. A streaming client is a different trade-off, and nothing in the loop's
+<details><summary>What about streaming?</summary><p>Streaming shows an answer word by word as the model
+produces it, the way a chat window types. agl does not stream; it is built for batch work and graphs that run
+in threads (several things at once inside one program). A streaming client is a different trade-off, and nothing in the loop's
 design prevents it.</p></details>
 </section>
 

@@ -1,8 +1,14 @@
 <!--meta {"title": "Tools", "part": "Part II · Building loops", "minutes": 10, "summary": "A typed Python function becomes a tool the model can call; errors go back as text instead of raising; paths are confined; and the way to steer a model is to design narrow tools with good first lines."} -->
 
 <p class="lede">In this chapter, we will learn how the model gets hands. A tool is a plain Python function.
-agl reads its signature and docstring and produces the schema the model needs, so each tool is defined
-once. We will see why a tool that fails must return text rather than raise, meet the standard tools,
+agl reads its signature (the function's name and typed arguments) and docstring (the explanatory text under
+its first line) and produces the schema the model needs (a description of the arguments' names, types and
+which are required), so each tool is defined once.
+
+<aside class="note tip">
+<h4>Word: schema</h4>
+<p>A <em>schema</em> is the shape of a piece of data, written down: which fields exist, what type each is, which are required. A form with labelled boxes is a schema; so is the list of fields on an expense claim. The model reads a tool's schema to know what it may send, and a program checks a reply against a schema to know whether it can be trusted. In this book, schemas are always JSON schemas.</p>
+</aside> We will see why a tool that fails must return text rather than raise, meet the standard tools,
 learn how to confine them, and learn the design rule that matters most: a narrow tool with a good first
 line steers a model better than any prompt. By the end you will write a tool in five lines and know what
 happens when the model calls it wrongly.</p>
@@ -78,9 +84,9 @@ again. Cap it, and teach the model to ask for a slice.</p>
 <tr><td><code>calc(expression)</code></td><td>exact arithmetic</td><td>parses with <code>ast</code>; only numbers and operators are allowed, so it cannot run code</td></tr>
 <tr><td><code>read_file(path, start, end)</code></td><td>numbered lines of a text file</td><td>path confined to the work directory</td></tr>
 <tr><td><code>write_file(path, content)</code></td><td>write a whole file</td><td>confined; creates parent folders</td></tr>
-<tr><td><code>list_files(path, pattern)</code></td><td>glob under a folder</td><td>skips .git and node_modules; capped at 300</td></tr>
+<tr><td><code>list_files(path, pattern)</code></td><td>glob under a folder (a filename pattern with wildcards, such as <code>**/*.py</code> for every Python file)</td><td>skips .git and node_modules; capped at 300</td></tr>
 <tr><td><code>grep(pattern, path, glob)</code></td><td>regex search with file:line prefixes; a file path searches that file</td><td>capped at 200 matches</td></tr>
-<tr><td><code>shell(command, timeout)</code></td><td>run a command, return output and exit code</td><td>confined cwd; timeout; last 8,000 chars</td></tr>
+<tr><td><code>shell(command, timeout)</code></td><td>run a command, return output and exit code (the number a program leaves behind: zero means it succeeded)</td><td>confined cwd; timeout; last 8,000 chars</td></tr>
 <tr><td><code>read_pdf(path, max_chars)</code></td><td>extract a PDF's text</td><td>capped</td></tr>
 </tbody></table></div>
 
@@ -145,7 +151,8 @@ def check_book(slug: str) -> str:
     r = subprocess.run([sys.executable, "build.py", "--check"], cwd=APP, capture_output=True, text=True)
     return "\n".join(line for line in r.stdout.splitlines() if f"{slug}/" in line) or "ok"</code></pre>
 
-<p>Notice what she did not do. She did not return the whole build log (the model does not need it). She
+<p>(<code>subprocess.run</code> starts another program, here the site's own checker, waits for it, and
+hands back what it printed; the tool is a window onto that program's verdict.) Notice what she did not do. She did not return the whole build log (the model does not need it). She
 did not raise on a failed build (a failed build is information). She did not let the model pick the
 command (the shell exists for that; this tool is safer because it is narrower). A model with
 <code>check_book</code> checks books. A model with <code>shell</code> and a prompt that says "please run
@@ -169,7 +176,7 @@ model calls the old name and every call fails. One source, no drift.</p></detail
 <details><summary>Should tools return JSON or prose?</summary><p>Whatever is shortest and unambiguous.
 Lists and dicts are serialised as JSON; strings pass through; numbers come back as their string form.</p></details>
 <details><summary>Is the shell tool safe?</summary><p>No. Confinement and a timeout stop accidents, not
-intent. Give it to loops you watch, put it behind Approval, or run the loop in a container.</p></details>
+intent. Give it to loops you watch, put it behind Approval, or run the loop in a container (a sealed box of a machine the loop cannot see out of, so a bad command can only break what is inside).</p></details>
 <details><summary>How many tools should a loop have?</summary><p>As few as the task needs, usually
 three to six. More tools mean more schema tokens on every call and more ways to wander. A graph with
 specialised nodes beats one loop with twenty tools.</p></details>

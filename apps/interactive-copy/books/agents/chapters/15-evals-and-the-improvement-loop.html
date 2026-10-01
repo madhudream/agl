@@ -83,7 +83,14 @@ the gap      one judged task scored 0.8: a pass above its threshold, not a perfe
 
 <h2>The results log</h2>
 
-<p><strong>One row per run, with the commit it was measured on.</strong> <code>agl eval --desc "what you
+<p><strong>One row per run, with the commit it was measured on.</strong> (A <em>commit</em> is a saved,
+named snapshot of the whole codebase in version control; checking one out puts every file back exactly as
+it was, so a row that names its commit can be rerun a year later.)
+
+<aside class="note tip">
+<h4>Word: commit, version control</h4>
+<p><em>Version control</em> (git) keeps every saved version of the code, each one a <em>commit</em> with a short id. It is the newspaper's bound archive: every edition, as printed, retrievable by date. The improvement loop leans on it: commit before a run, so the result points at exactly that edition; keep the commit if the number improved, reset to the previous one if not.</p>
+</aside> <code>agl eval --desc "what you
 changed"</code> appends to <code>results.tsv</code>: commit, model, score, pass rate, cost, tokens, p50,
 status, description. Status starts as pending; you set it to keep, discard or crash after reading the
 numbers. Tab-separated, because descriptions have commas. A row you can check out and rerun is the

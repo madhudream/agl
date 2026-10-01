@@ -30,8 +30,14 @@ g.edge("plan", "write_a", "write_b", "write_c")
 g.edge("write_a", "edit"); g.edge("write_b", "edit"); g.edge("write_c", "edit")
 state = g.run({"topic": "why agents need evaluators"})</code></pre>
 
-<p>The state is one dictionary. Every node gets a snapshot and returns a dictionary of new keys, which
-the engine merges in. A node never mutates the state it was given. Three kinds of thing can be a node: a
+<p>The state is one dictionary (a set of named values, like a form with labelled boxes). Every node gets
+a snapshot (a copy taken at that moment, a photograph of the whiteboard before the meeting) and returns a
+dictionary of new keys, which the engine merges in. A node never changes the state it was given.
+
+<aside class="note tip">
+<h4>Word: state, wave, thread</h4>
+<p>The <em>state</em> is the shared whiteboard: every fact the graph knows so far, by name. A <em>wave</em> is one morning meeting: every node whose inputs are ready goes out at the same time. A <em>thread</em> is how a program does several things at once; the engine starts one per node in the wave, the way the desk sends several reporters out together, and waits until the last one is back before the next meeting.</p>
+</aside> Three kinds of thing can be a node: a
 plain function, a loop through <code>as_node</code> (its prompt is a template over the state), or a whole
 other graph. The engine does not care which.</p>
 

@@ -90,7 +90,12 @@ testable shape.</strong></p>
     return evaluate</code></pre>
 
 <p>Three decisions hide in those lines. Temperature zero, so the same answer gets the same verdict as
-often as a model allows. JSON mode, so the verdict parses. And a <code>model</code> argument, so the judge
+often as a model allows.
+
+<aside class="note tip">
+<h4>Word: temperature</h4>
+<p><em>Temperature</em> is the model's randomness dial. At 0 it picks its most likely next word every time; higher settings let it gamble on less likely words, which reads as creativity. A judge should be a careful clerk, not a brainstormer, so judges run at 0. Workers writing prose can run warmer. The dial does not make a model smarter or stricter; it makes it more or less predictable.</p>
+</aside> JSON mode, so the verdict parses. And a <code>model</code> argument, so the judge
 runs on a different model from the worker.</p>
 
 <h2>The judge is not the worker</h2>

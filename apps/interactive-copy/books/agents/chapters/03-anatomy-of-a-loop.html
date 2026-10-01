@@ -30,7 +30,12 @@ model decides.</p>
 <h3>Prompt</h3>
 
 <p>Three messages at most: a system prompt (what kind of agent this is, plus standing instructions),
-an optional context message (a document, a file, a block of remembered facts), and the task. Keep the
+an optional context message (a document, a file, a block of remembered facts), and the task.
+
+<aside class="note tip">
+<h4>Word: prompt, system prompt, context</h4>
+<p>A <em>prompt</em> is everything the model is shown before it answers. The <em>system prompt</em> is the standing part: who the agent is and how it should behave, like the job description pinned above a reporter's desk that she rereads every morning. <em>Context</em> is the material for this one job: the document, the file, the notes. The task is the assignment itself. The model sees all three at once, every time it is called.</p>
+</aside> Keep the
 task separate from the context: evaluators and logs want to read the task without forty pages of
 context around it.</p>
 
@@ -46,13 +51,12 @@ the next step, and why everything a tool returns is paid for again on every late
 <p>If the model asked for tools, each one runs and its result goes back into the history as a message
 with the role "tool". Then the loop goes straight back to LLM. The model now sees what happened and
 decides again. A tool that fails returns its error as text, so the model can read it and correct itself;
-a tool that raised an exception would end the day instead.</p>
+a tool that raised an exception (Python's way of stopping a program with an error) would end the day instead.</p>
 
 <h3>Evaluate</h3>
 
 <p>A reply with no tool calls is a candidate answer. It goes to the evaluator: a function that returns
-pass or fail, with feedback. The evaluator can be a regex, a parser, a test suite, a build, or a second
-model reading a rubric. The one thing it must not be is the worker model's own opinion of itself.</p>
+pass or fail, with feedback. The evaluator can be a regex (a pattern that matches text, like a search with wildcards: 'only digits', 'ends in .json'), a parser (code that reads a format and complains when it is malformed), a test suite, a build, or a second model reading a rubric (a written marking scheme, the kind a teacher grades essays against). The one thing it must not be is the worker model's own opinion of itself.</p>
 
 <h3>Pass, Fail, Final Answer</h3>
 
@@ -82,6 +86,13 @@ the prompt tokens.</p>
 <p>The jump from a few hundred to a few thousand prompt tokens between the first and second call is the
 number to remember. The file the tool returned is now in the history, and it is sent again on every call
 until the run ends. Tool results are not free, and the cost arrives later, not when they come back.</p>
+
+
+
+<aside class="note tip">
+<h4>Word: token</h4>
+<p>Models do not read words; they read <em>tokens</em>, pieces of words about four characters long. 'How many lines does the file have' is about eight tokens. Every call is billed by the tokens sent in (prompt tokens) and the tokens the model writes back (completion tokens). Think of column inches in a newspaper: the paper pays for every inch of every edition, and a reporter who attaches the whole archive to every filing is paying for it every day.</p>
+</aside>
 
 <pre class="calc">call 1   475 prompt tokens      the task and two tool schemas
 call 2   3,970 prompt tokens    call 1 + the tool call + 217 numbered lines of a file

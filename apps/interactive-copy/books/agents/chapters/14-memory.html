@@ -37,6 +37,9 @@ projects apart.</p>
 
 <p><strong>A memory framework, to agl, is six methods.</strong></p>
 
+<p>(A <code>Protocol</code> in Python is a job description: any class with these methods qualifies, with no
+parent class to inherit from.)</p>
+
 <pre><code class="language-python">class MemoryBackend(Protocol):
     def recall(self, query, user_id, budget_tokens) -> tuple[str, int]: ...   # a dated fact block, and how many facts
     def remember(self, messages, user_id, session_id) -> None: ...            # extract and store; may run in the background
@@ -46,11 +49,17 @@ projects apart.</p>
     def flush(self) -> None: ...                                              # wait for background writes</code></pre>
 
 <p>mem lib, the shipped backend, is one SQLite file: facts as short dated sentences, a full-text index
-for keyword search, one model call per <code>remember</code> to extract facts from a conversation, and a
+for keyword search (an index of every word, like the index at the back of a book, so 'Kansas' finds every
+fact that mentions it), one model call per <code>remember</code> to extract facts from a conversation, and a
 <code>recall</code> that ranks by match and packs facts under a token budget. It is small on purpose; it
 is enough to run a real assistant and to teach the shape. A framework with embeddings, deduplication
 across phrasings, fact versioning and graph links fits the same six methods in about thirty lines of
 adapter, and is passed as <code>backend=</code>.</p>
+
+<aside class="note tip">
+<h4>Word: embedding</h4>
+<p>An <em>embedding</em> turns a sentence into a list of numbers so that sentences with similar meaning land near each other, even when they share no words. 'Where is my class?' lands near 'the students are in Kansas City'. A keyword index is the index at the back of the book; an embedding is a librarian who understands what you meant. mem lib uses the index; bigger frameworks add the librarian.</p>
+</aside>
 
 <h2>Recall before, remember after</h2>
 

@@ -50,8 +50,10 @@ fix -> assemble               <- closes a cycle: a back edge</pre>
 <p>If the engine counted <code>fix</code> as an input of <code>assemble</code>, then <code>assemble</code>
 would wait for <code>fix</code> to fire at least once, which happens only after a failure, which can only
 happen after <code>assemble</code> runs. The graph would stop after <code>write</code> with no error. So
-the engine finds back edges first, with a depth-first search from START that follows edges and router
-targets, and marks any edge pointing to a node still on the search stack:</p>
+the engine finds back edges first, with a depth-first search from START (follow each arrow as far as it
+goes before trying the next one, like walking one corridor to its end before opening the next door) that
+follows edges and router targets, and marks any edge pointing to a node still on the search stack (a node
+you are still inside of on the current walk):</p>
 
 <pre><code class="language-python">def back_edges(self) -> set[tuple[str, str]]:
     out = defaultdict(list)
@@ -126,8 +128,8 @@ uv run agl draw examples/graph_fanout.py --excalidraw docs/article.excalidraw</c
   review -- fail --> edit</pre>
 
 <p>Rounded shapes are loops, square ones plain functions, double-bordered ones sub-graphs. The excalidraw
-export lays nodes out in columns by topological layer (ignoring back edges, so repair nodes sit after the
-node they repair), draws routers as dashed arrows, and writes a file you can open and keep editing. The
+export lays nodes out in columns ordered so that every forward arrow points right (ignoring back edges, so
+repair nodes sit after the node they repair), draws routers as dashed arrows, and writes a file you can open and keep editing. The
 whiteboard this book follows is an excalidraw file; the graphs it inspired can be drawn back into the
 same format.</p>
 

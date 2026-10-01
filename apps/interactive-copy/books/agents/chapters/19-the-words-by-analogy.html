@@ -1,0 +1,230 @@
+<!--meta {"title": "The words, by analogy", "part": "Appendix", "minutes": 12, "summary": "Every technical term in the book, each with a plain meaning and a picture from everyday life or the newsroom, grouped the way the book is: models, the loop, tools, evaluators, graphs, plugins and memory, measuring, shipping."} -->
+
+<p class="lede">In this appendix, we will learn nothing new and understand everything better. Every term the
+book uses is here, with a one-line meaning and a picture to hang it on. Read it once straight through
+before Part II if the vocabulary is new to you, and come back to it whenever a word stops you. The
+pictures are the newsroom's where the newsroom has one, and everyday ones where it does not.</p>
+
+<aside class="note analogy">
+<h4>The analogy: the stylebook</h4>
+<p>Every newsroom keeps a stylebook: the agreed meaning of every word the paper uses, so that two desks
+never mean different things by "source" or "lede". This appendix is the stylebook for the book. When a
+chapter uses a word, this is what it means, and this is the picture behind it.</p>
+</aside>
+
+<h2>Models and tokens</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>model</td><td>the program that reads a prompt and writes a reply, one token at a time</td><td>the reporter's brain: the same brain whether it is on the phone or in the building</td></tr>
+<tr><td>token</td><td>the unit a model reads and writes in; a piece of a word, about four characters</td><td>column inches: the paper pays for every one, news or filler</td></tr>
+<tr><td>prompt tokens, completion tokens</td><td>what goes in and what comes out of one call, counted in tokens</td><td>the brief you hand over, and the copy that comes back; you pay for both, and the brief gets longer every round</td></tr>
+<tr><td>reasoning tokens</td><td>completion tokens the model spent thinking before answering</td><td>the scribbled notes before the clean copy; billed like copy</td></tr>
+<tr><td>prompt</td><td>everything the model is shown before it answers</td><td>the whole desk the reporter looks at: the job description, the notes, the assignment</td></tr>
+<tr><td>system prompt</td><td>the standing part of the prompt: who the agent is, how to behave</td><td>the job description pinned above the desk</td></tr>
+<tr><td>context</td><td>the material for this one job: documents, files, remembered facts</td><td>the folder of clippings handed over with the assignment</td></tr>
+<tr><td>context window</td><td>the most tokens one call can carry</td><td>the size of the desk; past it, things fall off</td></tr>
+<tr><td>temperature</td><td>the randomness dial; 0 picks the most likely word every time</td><td>a careful clerk at 0, a brainstormer at 1</td></tr>
+<tr><td>reasoning effort</td><td>how long the model thinks before answering</td><td>a quick note versus a considered memo; the memo costs more</td></tr>
+<tr><td>model API, endpoint</td><td>the service over the network that runs the model; the address it listens at</td><td>the phone network and the number you dial</td></tr>
+<tr><td>SDK</td><td>the official library for talking to the model API from code</td><td>the phone app that knows how to dial</td></tr>
+<tr><td>API key</td><td>the secret that proves to the API who is calling and who to bill</td><td>the account number on the phone contract; never printed in the paper</td></tr>
+<tr><td>environment variable</td><td>a setting kept outside the code, read when the program starts</td><td>a label on the switchboard saying which number to dial</td></tr>
+<tr><td>worker, judge, specialist</td><td>the three model roles: does the work, grades it, handles one hard step</td><td>reporter, editor, the expert called in for one story</td></tr>
+<tr><td>structured output</td><td>asking the model for an object matching a schema instead of prose</td><td>a form with boxes instead of a letter</td></tr>
+<tr><td>streaming</td><td>receiving the answer word by word as it is produced</td><td>watching the wire service tick in versus reading the finished page</td></tr>
+</tbody></table></div>
+
+<h2>The loop</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>agent</td><td>a model plus tools, a loop, an evaluator and a place to work</td><td>a reporter with a badge, a desk and an editor, not a voice on the phone</td></tr>
+<tr><td>loop</td><td>prompt, model, action, result, again, until an evaluator says pass</td><td>a reporter chasing a story until the desk accepts it</td></tr>
+<tr><td>step</td><td>one model call inside a loop</td><td>one round of thinking at the desk</td></tr>
+<tr><td>history, messages</td><td>the list of everything said so far, sent in full on every call</td><td>the growing folder the reporter carries to every meeting</td></tr>
+<tr><td>action, result</td><td>a tool call the model asks for, and what the tool returned</td><td>making a phone call, and the note of what was said</td></tr>
+<tr><td>evaluate</td><td>something other than the model deciding whether the answer is final</td><td>the editor's desk</td></tr>
+<tr><td>pass, fail, feedback</td><td>the evaluator's verdict and, on a fail, the note that goes back to the model</td><td>"run it", or "back to you, and here is why"</td></tr>
+<tr><td>status</td><td>how a run ended: pass, fail, max_steps, budget, error</td><td>the stamp on the folder when it leaves the desk</td></tr>
+<tr><td>max_steps, max_fails</td><td>ceilings on tool rounds and on rejected answers</td><td>"three hours and two rewrites, then we run what we have or spike it"</td></tr>
+<tr><td>trace</td><td>the file where every event of a run is written, one JSON line each</td><td>the archivist's log of every call made and every note filed</td></tr>
+<tr><td>runaway, flailing</td><td>a loop that calls tools without end; a loop that tries many things and gets nowhere</td><td>a reporter who keeps phoning the same number; one who phones everyone and files nothing</td></tr>
+<tr><td>context bloat, context rot</td><td>a history that grows until every call is expensive; a model that attends less to the middle of a long history</td><td>a folder so thick the reporter cannot find the brief; and skims the middle</td></tr>
+<tr><td>compaction</td><td>shortening old tool results in the history while keeping the gist</td><td>the sub-editor trimming old notes to a line each</td></tr>
+<tr><td>prompt injection</td><td>instructions hidden in text the model reads, which it may follow</td><td>a forged note slipped into the clippings folder</td></tr>
+</tbody></table></div>
+
+<h2>Tools</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>tool</td><td>a function the model may ask to run, described by a name, a description and a schema</td><td>a door the badge opens</td></tr>
+<tr><td>signature</td><td>a function's name and its typed arguments</td><td>the label on the door and the shape of its key</td></tr>
+<tr><td>docstring</td><td>the explanatory text under a function's first line</td><td>the sign on the door saying what is behind it</td></tr>
+<tr><td>schema, JSON schema</td><td>the shape of a piece of data: fields, types, which are required</td><td>a form with labelled boxes</td></tr>
+<tr><td>JSON</td><td>the bracketed text format programs use to exchange data</td><td>the standard form every desk can read</td></tr>
+<tr><td>JSONL</td><td>a file with one JSON object per line</td><td>a ledger: one entry per line, searchable</td></tr>
+<tr><td>regex</td><td>a pattern that matches text</td><td>a search with wildcards: "only digits", "ends in .json"</td></tr>
+<tr><td>parser, parse</td><td>code that reads a format and complains if it is malformed</td><td>the clerk who rejects a form with the boxes filled in wrong</td></tr>
+<tr><td>confinement, work directory</td><td>tools may only touch files under one folder</td><td>the badge opens doors on one floor</td></tr>
+<tr><td>shell, subprocess</td><td>running another program and reading what it prints</td><td>sending a runner to another department and reading the note they bring back</td></tr>
+<tr><td>exit code</td><td>the number a program leaves behind; zero means success</td><td>the runner's thumbs up or down</td></tr>
+<tr><td>timeout</td><td>the longest a tool may run before it is stopped</td><td>"if you are not back in an hour, we go without you"</td></tr>
+<tr><td>glob</td><td>a filename pattern with wildcards</td><td>"every folder marked 2026"</td></tr>
+<tr><td>grep</td><td>search files for lines matching a pattern</td><td>flipping the archive for every page that mentions a name</td></tr>
+<tr><td>container, sandbox</td><td>a sealed environment a program cannot see out of</td><td>a locked room: break what you like, it stays in the room</td></tr>
+<tr><td>allow-list</td><td>the set of things permitted; everything else is refused</td><td>the guest list at the door</td></tr>
+<tr><td>human in the loop, approval</td><td>a person must say yes before a tool that acts can run</td><td>legal signs off before anything risky goes out</td></tr>
+</tbody></table></div>
+
+<h2>Evaluators</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>deterministic check</td><td>a test a program runs with the same answer every time, free</td><td>the byline-and-word-count checklist a junior runs in a minute</td></tr>
+<tr><td>judge</td><td>a second model reading the answer against a rubric and scoring it</td><td>the senior reader</td></tr>
+<tr><td>rubric</td><td>a written marking scheme the judge applies</td><td>the teacher's grading sheet; a literal reader applies it word for word</td></tr>
+<tr><td>threshold</td><td>the judge score at or above which an answer passes</td><td>the pass mark</td></tr>
+<tr><td>all_of</td><td>run evaluators in order; stop at the first fail</td><td>checklist first, senior reader only for copy that passed it</td></tr>
+<tr><td>verdict</td><td>passed or not, feedback, score</td><td>the editor's note on the top of the copy</td></tr>
+<tr><td>validator, contract</td><td>a deterministic check with many rules; the rules the output must meet to be accepted</td><td>the printer's proof: either it prints or a page goes back</td></tr>
+<tr><td>grounding</td><td>putting the source material in the prompt and requiring facts to come from it</td><td>"quote the document in front of you, not what you remember"</td></tr>
+</tbody></table></div>
+
+<h2>Graphs</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>graph</td><td>nodes and edges: steps, and which may follow which, fixed in advance</td><td>the desk's plan for the day, written down</td></tr>
+<tr><td>node</td><td>one step: a function of the state that returns new keys</td><td>one person's job on the plan</td></tr>
+<tr><td>edge</td><td>"when this finishes, that may start"</td><td>an arrow on the assignment board</td></tr>
+<tr><td>state</td><td>the shared dictionary of everything the graph knows so far</td><td>the whiteboard everyone writes their results on</td></tr>
+<tr><td>key</td><td>one named value in the state</td><td>one labelled box on the whiteboard</td></tr>
+<tr><td>wave</td><td>all the nodes whose inputs are ready, run at the same time</td><td>the morning meeting sending several reporters out together</td></tr>
+<tr><td>snapshot</td><td>a copy of the state taken before a wave starts</td><td>a photograph of the whiteboard before the meeting</td></tr>
+<tr><td>thread</td><td>how a program does several things at once</td><td>several reporters out at the same time</td></tr>
+<tr><td>fan-out, fan-in</td><td>one node feeding several; several feeding one that waits for all</td><td>assigning three angles; the rewrite editor waiting for all three</td></tr>
+<tr><td>map, fanout node</td><td>the same work for every item in a list, in parallel</td><td>one reporter per town for the election results</td></tr>
+<tr><td>router</td><td>a function of the state that returns a label; the label picks the next node</td><td>the news editor reading the wire and deciding which desk gets it</td></tr>
+<tr><td>back edge</td><td>an edge that closes a cycle; it re-triggers its target but is not waited for</td><td>the return path when legal bounces a piece</td></tr>
+<tr><td>dependency</td><td>an input a node waits for</td><td>"rewrite cannot start until all three have filed"</td></tr>
+<tr><td>depth-first search</td><td>follow each arrow as far as it goes before trying the next</td><td>walk one corridor to its end before opening the next door</td></tr>
+<tr><td>cycle, max_visits</td><td>a path that returns to a node; the ceiling on how often a node may run</td><td>the rewrite loop, and "three rewrites, then we decide"</td></tr>
+<tr><td>state collision</td><td>two nodes in one wave writing the same key</td><td>two reporters filing into the same slot</td></tr>
+<tr><td>stall</td><td>a graph that stops early with no error because a node waits for an input that cannot come</td><td>a page that never prints because it waits for a sign-off that waits for the page</td></tr>
+<tr><td>sub-graph</td><td>a whole graph used as one node of another</td><td>a desk inside a desk</td></tr>
+<tr><td>stub node</td><td>a placeholder function that returns its own name, for testing the shape</td><td>a rehearsal with the actors reading their names</td></tr>
+<tr><td>checkpoint, resume</td><td>the state saved after every wave; a rerun that skips finished nodes</td><td>the proof sheet saved after each page, so a crashed press restarts at the right page</td></tr>
+<tr><td>retries, on_error</td><td>re-running a node that failed; jumping to a fallback node when it raises</td><td>redialling, and the backup reporter</td></tr>
+<tr><td>text form</td><td>the six-line notation (<code>a -&gt; b, c</code>, <code>a ?label-&gt; b</code>) that builds a graph</td><td>the assignment board itself as the plan</td></tr>
+<tr><td>Mermaid, excalidraw</td><td>two drawing formats the graph exports to</td><td>the clean org chart and the hand-drawn whiteboard</td></tr>
+</tbody></table></div>
+
+<h2>Plugins and memory</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>plugin, hook</td><td>an object with named methods the loop and graph call at known moments</td><td>the people around the reporter who see everything and write nothing</td></tr>
+<tr><td>Trace, Console</td><td>write every event to a file; print one line per step</td><td>the archivist; the editor shouting progress across the room</td></tr>
+<tr><td>Budget</td><td>stop a run that spends or steps too much</td><td>the managing editor pulling the plug</td></tr>
+<tr><td>Compact</td><td>shorten old tool results in the history</td><td>the sub-editor trimming old notes</td></tr>
+<tr><td>Approval</td><td>guarded tools run only if a policy or a person says yes</td><td>legal's sign-off</td></tr>
+<tr><td>skill</td><td>a markdown page of standing instructions appended to the system prompt</td><td>the style guide on every desk</td></tr>
+<tr><td>memory framework, backend</td><td>software that stores facts from conversations and finds them later; the six-method interface agl talks to it through</td><td>the archive, and the archivist's counter</td></tr>
+<tr><td>mem lib</td><td>the small memory backend agl ships</td><td>a one-room archive with a good index</td></tr>
+<tr><td>recall, remember</td><td>fetch relevant facts before a run; extract and store facts after one</td><td>pulling the clippings before; filing the story after</td></tr>
+<tr><td>extraction</td><td>a model call that turns a conversation into short dated facts</td><td>the archivist deciding what is worth clipping</td></tr>
+<tr><td>keyword search, full-text index</td><td>finding facts by the words they contain</td><td>the index at the back of a book</td></tr>
+<tr><td>embedding</td><td>numbers that place similar meanings near each other</td><td>a librarian who understands what you meant</td></tr>
+<tr><td>user id, scoping</td><td>every fact stored under one person or project, every search limited to it</td><td>one archive drawer per client, locked</td></tr>
+<tr><td>semantic, episodic, procedural</td><td>facts about the world; what happened when; how to do things</td><td>the clippings, the diary, the style guide</td></tr>
+<tr><td>token budget</td><td>the most tokens of recalled facts allowed into the prompt</td><td>"one page of clippings, no more"</td></tr>
+</tbody></table></div>
+
+<h2>Measuring</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>measurable</td><td>a program can print one number after every attempt, and better moves it the right way</td><td>the sports desk: there is a score</td></tr>
+<tr><td>open-ended, closed</td><td>the model picks what to try; we pick</td><td>"find me a story" versus "cover these three events"</td></tr>
+<tr><td>exam, eval</td><td>a file of tasks with expected answers, graded the same way every time</td><td>the daily edition, checked</td></tr>
+<tr><td>task, expect</td><td>one exam row: the text, the allowed tools, the checks</td><td>one assignment and its acceptance criteria</td></tr>
+<tr><td>score, pass rate</td><td>mean task score; share of tasks that passed</td><td>the grade, and how many pages printed clean</td></tr>
+<tr><td>latency, p50, p95</td><td>the wait for an answer; the typical wait; the wait the unlucky one in twenty sees</td><td>how long the reader waits for the paper, on a normal day and on a bad one</td></tr>
+<tr><td>wall clock</td><td>real elapsed time, as a clock on the wall would show</td><td>the deadline clock, not the hours worked</td></tr>
+<tr><td>noise, margin</td><td>run-to-run variation; the change required before a difference counts</td><td>the same edition is never quite identical twice; a real improvement shows past that</td></tr>
+<tr><td>cache (for measuring)</td><td>exact replay of an identical run, for free</td><td>re-reading yesterday's edition instead of reprinting it</td></tr>
+<tr><td>fixture</td><td>a frozen file the exam's expectations are pinned to</td><td>the reference copy in the vault</td></tr>
+<tr><td>results log</td><td>one row per run: commit, score, cost, verdict, description</td><td>the lab notebook</td></tr>
+<tr><td>commit, version control</td><td>a saved, named snapshot of the code; the system that keeps them all</td><td>the bound archive of every edition as printed</td></tr>
+<tr><td>lint, tests</td><td>a program that checks code style; programs that check code behaviour</td><td>spelling check and fact check for code</td></tr>
+<tr><td>improvement loop, brief</td><td>an agent that changes one thing, runs the exam, keeps or discards, logs, repeats; the file that tells it how</td><td>the night desk and its standing orders</td></tr>
+<tr><td>scope, gate, log</td><td>what the loop may edit; what must pass before a run counts; one row per run</td><td>the night desk may touch tomorrow's pages but not the stylebook; nothing prints unchecked; every change in the log</td></tr>
+<tr><td>simplicity criterion</td><td>equal results with less code wins</td><td>a shorter story that says the same is the better story</td></tr>
+</tbody></table></div>
+
+<h2>Shipping</h2>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Term</th><th>Meaning</th><th>Picture</th></tr></thead>
+<tbody>
+<tr><td>HTTP, POST, GET</td><td>the web's request language; sending a document; asking for one</td><td>the mail room: a parcel out, a request for one back</td></tr>
+<tr><td>serve, service</td><td>a program that waits for requests and answers them</td><td>the counter that never closes</td></tr>
+<tr><td>localhost</td><td>this machine only; nothing from outside can reach it</td><td>an internal extension, not a public number</td></tr>
+<tr><td>authentication, rate limit</td><td>proving who is calling; capping how often they may</td><td>the badge at the door; the queue</td></tr>
+<tr><td>staging</td><td>where generated work waits before it is published</td><td>the proof table before the press</td></tr>
+<tr><td>review before publish</td><td>a gate between generating and going live</td><td>nothing reaches the press without the editor's initials</td></tr>
+<tr><td>deploy, release</td><td>putting a new version of the service into use</td><td>the edition going to press</td></tr>
+</tbody></table></div>
+
+<section class="try">
+<h2>Try it yourself</h2>
+<p>Pick ten terms from this appendix and write your own picture for each, from your own work rather than
+a newsroom. Then reread one chapter from Part III with your pictures in mind. The words that still stop
+you are the ones to look up in the code: every term here names something in agl you can open.</p>
+</section>
+
+<section class="faq">
+<h2>Common questions</h2>
+<details><summary>Why a newsroom for everything?</summary><p>One analogy, used consistently, is worth more
+than ten clever ones: once the reporter, the desk, the editor and the archive are fixed in your mind,
+every new term has a place to go. Where the newsroom has no picture, we used an everyday one and said so.</p></details>
+<details><summary>Are these definitions exact?</summary><p>They are exact enough to read the book and the
+code. A token is not always four characters; a thread is more subtle than "several things at once". The
+chapters give the precise version where it matters; the picture is for remembering.</p></details>
+<details><summary>Which ten terms matter most?</summary><p>Token, prompt, evaluator, rubric, state, wave,
+router, back edge, trace and exam. Know those and the rest follow.</p></details>
+<details><summary>Where are the words defined in code?</summary><p>Tokens and cost in <code>agl/llm.py</code>;
+the loop's words in <code>agl/loop.py</code>; tools in <code>agl/tools.py</code>; the graph's words in
+<code>agl/graph.py</code>; plugins in <code>agl/plugins.py</code>; memory in <code>agl/memory.py</code> and
+<code>agl/memlib.py</code>; the exam in <code>agl/eval.py</code>.</p></details>
+</section>
+
+<section class="carry">
+<h2>Carry this</h2>
+<ul>
+<li>Tokens are column inches; the paper pays for every one, and the brief gets longer every round.</li>
+<li>The loop is a reporter; the evaluator is the editor; the graph is the desk's plan; the state is the whiteboard.</li>
+<li>A deterministic check is the junior's checklist; a judge is the senior reader; the rubric is the grading sheet.</li>
+<li>Memory is the archive: pull the clippings before, file the story after, one drawer per client.</li>
+<li>The exam is the daily edition; the improvement loop is the night desk; scope, gate and log keep it honest.</li>
+</ul>
+</section>
+
+<section class="check">
+<h2>Check yourself</h2>
+<div class="q"><p><strong>1.</strong> In one picture each: token, wave, back edge.</p>
+<details><summary>Answer</summary><p>A token is a column inch the paper pays for; a wave is the morning meeting sending several reporters out at once; a back edge is the return path when legal bounces a piece.</p></details></div>
+<div class="q"><p><strong>2.</strong> What is the difference between a deterministic check and a judge, in newsroom terms?</p>
+<details><summary>Answer</summary><p>The check is the junior's byline-and-word-count checklist, free and the same every time; the judge is the senior reader with a grading sheet, paid per read, and only shown copy that passed the checklist.</p></details></div>
+<div class="q"><p><strong>3.</strong> Why does a cache have to miss when one word of the question changes?</p>
+<details><summary>Answer</summary><p>Because a cache is honest only for an identical question; serving yesterday's clipping for a different story would be a wrong answer dressed as a fast one.</p></details></div>
+</section>

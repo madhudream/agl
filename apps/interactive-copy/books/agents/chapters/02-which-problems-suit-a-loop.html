@@ -25,7 +25,7 @@ examples of each.</p>
 <tbody>
 <tr><td>Reduce the web page load time</td><td>milliseconds to first paint</td><td>Implement dark mode</td><td>done or not done, judged by eye</td></tr>
 <tr><td>Reduce the app startup time</td><td>milliseconds to first screen</td><td>Integrate a payment gateway</td><td>works or fails; no run-to-run gradient</td></tr>
-<tr><td>Reduce the latency</td><td>p50 and p95 in milliseconds</td><td>Make onboarding friendlier</td><td>taste, until you define a proxy</td></tr>
+<tr><td>Reduce the latency</td><td>p50 and p95 in milliseconds (latency is the wait between asking and getting an answer; p50 is the typical wait, p95 the wait the unlucky one in twenty sees)</td><td>Make onboarding friendlier</td><td>taste, until you define a proxy</td></tr>
 <tr><td>Reduce the processing time</td><td>seconds per batch</td><td>Write better documentation</td><td>better for whom, by what test</td></tr>
 <tr><td>Reduce the memory footprint</td><td>megabytes at peak</td><td>Refactor for clarity</td><td>clarity has no unit</td></tr>
 </tbody></table></div>
@@ -90,7 +90,7 @@ not.</strong> Most non-measurable tasks hide a measurable proxy.</p>
 </tbody></table></div>
 
 <p>Two patterns recur in that table and in the whole book. First, a checklist a program can run, which
-costs nothing and catches structure. Second, a rubric judged by a second model, which costs a model call
+costs nothing and catches structure; it is deterministic, meaning the same input gives the same verdict every time. Second, a rubric judged by a second model, which costs a model call
 and catches content. The checklist runs first, so the judge only reads what passed. Cheap checks first,
 expensive judges last.</p>
 
